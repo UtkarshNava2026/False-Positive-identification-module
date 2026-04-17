@@ -42,7 +42,7 @@ class DetectionModel:
         self.input_size = self.exp.test_size if hasattr(self.exp, "test_size") else (640, 640)
         self.model = self.exp.get_model()
 
-        ckpt = torch.load(pth_path, map_location=self.device)
+        ckpt = torch.load(pth_path, map_location=self.device , weights_only=False)
         if "model" in ckpt:
             self.model.load_state_dict(ckpt["model"])
         else:

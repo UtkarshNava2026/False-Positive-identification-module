@@ -5,4 +5,4 @@ __pycache__/
 YOLOX/
 best_ckpt.pth
 yolox_voc_s (2).py
-class.txt
+class-dock.txt

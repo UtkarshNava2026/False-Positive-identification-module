@@ -30,7 +30,7 @@ class ModelLoaderThread(QThread):
 
 
 class VideoThread(QThread):
-    change_pixmap_signal = pyqtSignal(QPixmap, list, int)
+    change_pixmap_signal = pyqtSignal(QPixmap, list, int, object)
     finished_signal = pyqtSignal()
 
     def __init__(self, source, model):
@@ -72,7 +72,7 @@ class VideoThread(QThread):
                 bytes_per_line = ch * w
                 qt_img = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
                 pixmap = QPixmap.fromImage(qt_img)
-                self.change_pixmap_signal.emit(pixmap, detections, self.frame_index)
+                self.change_pixmap_signal.emit(pixmap, detections, self.frame_index, self.current_frame)
 
             self.msleep(30)
 

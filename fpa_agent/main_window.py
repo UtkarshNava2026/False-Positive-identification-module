@@ -26,6 +26,7 @@ class MainWindow(QMainWindow):
         self.model_loader_thread = None
         self.current_detections = []
         self.current_frame_pixmap = None
+        self.current_raw_frame = None
         self.current_frame_index = 0
         self.false_positive_frames = []
         self.is_video = False
@@ -256,6 +257,7 @@ class MainWindow(QMainWindow):
         if frame is None:
             QMessageBox.warning(self, "Error", "Cannot read image.")
             return
+        self.current_raw_frame = frame.copy()
         detections = self.model.predict(frame) if self.model else []
         disp_frame = frame.copy()
         for det in detections:
@@ -269,16 +271,17 @@ class MainWindow(QMainWindow):
         bytes_per_line = ch * w
         qt_img = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
         pixmap = QPixmap.fromImage(qt_img)
-        self.update_display(pixmap, detections)
+        self.update_display(pixmap, detections, 0, frame)
         self.play_pause_btn.setEnabled(False)
         self.status_bar.showMessage(f"🖼️ Image loaded: {path}")
 
-    def update_display(self, pixmap, detections, frame_index=0):
+    def update_display(self, pixmap, detections, frame_index=0, raw_frame=None):
         self.display_label.setPixmap(pixmap.scaled(self.display_label.size(),
                                                    Qt.KeepAspectRatio,
                                                    Qt.SmoothTransformation))
         self.current_detections = detections
         self.current_frame_pixmap = pixmap
+        self.current_raw_frame = raw_frame
         self.current_frame_index = frame_index
         self.current_frame_label.setText(f"Frame: {frame_index}")
         self.btn_flag_fp.setEnabled(self.is_video and frame_index > 0)
@@ -384,14 +387,14 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", message)
 
     def export_frame(self):
-        if not self.current_frame_pixmap:
+        if self.current_raw_frame is None:
             QMessageBox.warning(self, "No frame", "No frame to export. Load a video/image first.")
             return
         out_dir = QFileDialog.getExistingDirectory(self, "Select export directory")
         if not out_dir:
             return
         temp_img_path = os.path.join(out_dir, "exported_frame.jpg")
-        self.current_frame_pixmap.save(temp_img_path)
+        cv2.imwrite(temp_img_path, self.current_raw_frame)
         fmt = self.export_format.currentText().lower()
         if fmt == "yolo":
             export_yolo(temp_img_path, self.current_detections,
