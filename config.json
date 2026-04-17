@@ -1,0 +1,21 @@
+{
+  "model": {
+    "pth_path": "D:\\Detection\\best_ckpt.pth",
+    "exp_path": "D:\\Detection\\yolox_voc_s (2).py",
+    "classes_path": "D:\\Detection\\class.txt",
+    "device": "cpu"
+  },
+  "video": {
+    "fps": 33
+  },
+  "ui": {
+    "window_width": 1200,
+    "window_height": 800,
+    "display_confidence": true,
+    "box_thickness": 2,
+    "text_size": 0.5
+  },
+  "export": {
+    "default_format": "YOLO"
+  }
+}
