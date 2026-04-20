@@ -3,13 +3,15 @@ import cv2
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QFileDialog, QLineEdit, QComboBox,
                              QMessageBox, QSlider, QGroupBox, QProgressBar,
-                             QListWidget, QStatusBar)
+                             QListWidget, QStatusBar, QListWidgetItem)
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QImage, QPixmap
+import json
+from datetime import datetime
 from .config_manager import ConfigManager
 from .style_manager import StyleSheetManager
 from .threads import ModelLoaderThread, VideoThread
-from .export_utils import export_yolo, export_voc, export_coco
+from .export_utils import export_yolo, export_voc, export_coco, export_false_positive_frames
 
 
 class MainWindow(QMainWindow):
@@ -29,6 +31,8 @@ class MainWindow(QMainWindow):
         self.current_raw_frame = None
         self.current_frame_index = 0
         self.false_positive_frames = []
+        self.fp_frame_data = {}  # Store {frame_id: {detections, timestamp, frame_image_path}}
+        self.current_video_path = None
         self.is_video = False
         self.video_thread = None
 
@@ -181,10 +185,32 @@ class MainWindow(QMainWindow):
 
         self.fp_list = QListWidget()
         self.fp_list.setMinimumHeight(120)
+        self.fp_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.fp_list.customContextMenuRequested.connect(self.show_fp_context_menu)
+        self.fp_list.itemDoubleClicked.connect(self.on_fp_list_double_click)
+
+        list_label = QLabel("Selected FP Frames (right-click to remove):")
+        list_label.setStyleSheet("color: #a0a0a0; font-size: 11px;")
+
+        export_fp_layout = QHBoxLayout()
+        self.fp_count_label = QLabel("Frames: 0")
+        self.fp_count_label.setMinimumWidth(100)
+        self.btn_export_fp_batch = QPushButton("📦 Export FP Frames")
+        self.btn_export_fp_batch.setMinimumHeight(34)
+        self.btn_export_fp_batch.setEnabled(False)
+        self.btn_export_fp_batch.clicked.connect(self.export_fp_frames_batch)
+        self.btn_clear_fp = QPushButton("🗑️ Clear")
+        self.btn_clear_fp.setMinimumHeight(34)
+        self.btn_clear_fp.clicked.connect(self.clear_fp_list)
+        export_fp_layout.addWidget(self.fp_count_label)
+        export_fp_layout.addWidget(self.btn_export_fp_batch, 1)
+        export_fp_layout.addWidget(self.btn_clear_fp)
 
         layout.addLayout(control_layout)
         layout.addLayout(fp_layout)
+        layout.addWidget(list_label)
         layout.addWidget(self.fp_list)
+        layout.addLayout(export_fp_layout)
         group.setLayout(layout)
         return group
 
@@ -237,6 +263,10 @@ class MainWindow(QMainWindow):
         if self.video_thread:
             self.video_thread.stop()
         self.is_video = True
+        self.current_video_path = source
+        self.false_positive_frames = []
+        self.fp_frame_data = {}
+        self.update_fp_list()
         self.video_thread = VideoThread(source, self.model)
         self.video_thread.change_pixmap_signal.connect(self.update_display)
         self.video_thread.finished_signal.connect(self.on_video_finished)
@@ -287,11 +317,17 @@ class MainWindow(QMainWindow):
         self.btn_flag_fp.setEnabled(self.is_video and frame_index > 0)
 
     def flag_current_frame(self):
-        if self.current_frame_index <= 0:
+        if self.current_frame_index <= 0 or self.current_raw_frame is None:
             return
         if self.current_frame_index not in self.false_positive_frames:
             self.false_positive_frames.append(self.current_frame_index)
             self.false_positive_frames.sort()
+            # Store frame data
+            self.fp_frame_data[self.current_frame_index] = {
+                'detections': [det.copy() for det in self.current_detections],
+                'timestamp': datetime.now().isoformat(),
+                'frame_image': self.current_raw_frame.copy()
+            }
             self.update_fp_list()
             self.status_bar.showMessage(f"🚩 Flagged frame {self.current_frame_index} as false positive")
 
@@ -307,6 +343,13 @@ class MainWindow(QMainWindow):
         if frame_number not in self.false_positive_frames:
             self.false_positive_frames.append(frame_number)
             self.false_positive_frames.sort()
+            # Store minimal data for manually added frames (without actual frame data)
+            self.fp_frame_data[frame_number] = {
+                'detections': [],
+                'timestamp': datetime.now().isoformat(),
+                'frame_image': None,
+                'manual_entry': True
+            }
             self.update_fp_list()
             self.status_bar.showMessage(f"🚩 Added frame {frame_number} as false positive")
         self.fp_frame_input.clear()
@@ -314,7 +357,52 @@ class MainWindow(QMainWindow):
     def update_fp_list(self):
         self.fp_list.clear()
         for frame in self.false_positive_frames:
-            self.fp_list.addItem(f"Frame {frame}")
+            item = QListWidgetItem(f"Frame {frame}")
+            item.setData(Qt.UserRole, frame)  # Store frame number as user data
+            self.fp_list.addItem(item)
+        self.fp_count_label.setText(f"Frames: {len(self.false_positive_frames)}")
+        self.btn_export_fp_batch.setEnabled(len(self.false_positive_frames) > 0)
+
+    def show_fp_context_menu(self, position):
+        """Show right-click context menu for FP list."""
+        item = self.fp_list.itemAt(position)
+        if item is None:
+            return
+        frame_num = item.data(Qt.UserRole)
+        menu = QMessageBox(self)
+        menu.setWindowTitle("Delete Frame")
+        menu.setText(f"Remove Frame {frame_num} from FP list?")
+        menu.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        if menu.exec_() == QMessageBox.Yes:
+            self.remove_fp_frame(frame_num)
+
+    def remove_fp_frame(self, frame_num):
+        """Remove a false positive frame from the list."""
+        if frame_num in self.false_positive_frames:
+            self.false_positive_frames.remove(frame_num)
+            if frame_num in self.fp_frame_data:
+                del self.fp_frame_data[frame_num]
+            self.update_fp_list()
+            self.status_bar.showMessage(f"❌ Removed frame {frame_num}")
+
+    def clear_fp_list(self):
+        """Clear all false positive frames."""
+        if len(self.false_positive_frames) == 0:
+            return
+        menu = QMessageBox(self)
+        menu.setWindowTitle("Clear All")
+        menu.setText(f"Clear all {len(self.false_positive_frames)} marked frames?")
+        menu.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        if menu.exec_() == QMessageBox.Yes:
+            self.false_positive_frames = []
+            self.fp_frame_data = {}
+            self.update_fp_list()
+            self.status_bar.showMessage("🗑️ Cleared all false positive frames")
+
+    def on_fp_list_double_click(self, item):
+        """Jump to selected frame when double-clicked."""
+        frame_num = item.data(Qt.UserRole)
+        self.status_bar.showMessage(f"Frame {frame_num} selected (seek not yet implemented)")
 
     def on_video_finished(self):
         self.status_bar.showMessage("⏹️ Video finished.")
@@ -385,6 +473,53 @@ class MainWindow(QMainWindow):
             self.lbl_model_status.setText("✗ Model: Not loaded")
             self.lbl_model_status.setStyleSheet("color: #ff6b6b;")
             QMessageBox.critical(self, "Error", message)
+
+    def export_fp_frames_batch(self):
+        """Export all marked false positive frames with metadata."""
+        if len(self.false_positive_frames) == 0:
+            QMessageBox.warning(self, "No frames", "No false positive frames marked for export.")
+            return
+        
+        out_dir = QFileDialog.getExistingDirectory(self, "Select export directory for FP frames")
+        if not out_dir:
+            return
+        
+        # Count frames with actual data (not just manually entered frame numbers)
+        frames_with_data = sum(1 for f in self.false_positive_frames 
+                              if self.fp_frame_data.get(f, {}).get('frame_image') is not None)
+        
+        if frames_with_data == 0:
+            QMessageBox.warning(self, "No frame data", 
+                               "No frames with actual image data to export.\n\n"
+                               "Only manually entered frame numbers were added.\n"
+                               "Flag frames while playing video to capture image data.")
+            return
+        
+        # Call export function
+        try:
+            result = export_false_positive_frames(
+                fp_frame_data=self.fp_frame_data,
+                output_dir=out_dir,
+                class_names=self.model.classes if self.model else ['object'],
+                format_type=self.export_format.currentText().lower()
+            )
+            
+            QMessageBox.information(
+                self, "Export Complete",
+                f"✓ Exported {result['exported_frames']} frames\n"
+                f"✓ Location: {out_dir}\n"
+                f"✓ Created:\n"
+                f"  - images/ folder\n"
+                f"  - labels/ folder\n"
+                f"  - metadata.json\n\n"
+                f"Ready for model retraining!"
+            )
+            self.status_bar.showMessage(
+                f"✓ Exported {result['exported_frames']} FP frames to {out_dir}"
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Export Error", f"Failed to export:\n{str(e)}")
+            self.status_bar.showMessage(f"✗ Export failed: {str(e)}")
 
     def export_frame(self):
         if self.current_raw_frame is None:
