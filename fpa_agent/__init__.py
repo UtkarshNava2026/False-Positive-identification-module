@@ -4,3 +4,5 @@ from .detection_model import DetectionModel
 from .export_utils import export_yolo, export_voc, export_coco
 from .threads import ModelLoaderThread, VideoThread
 from .main_window import MainWindow
+from .tracker import ByteTracker, TrackedObject
+from .analysis import TrackingAnalyzer

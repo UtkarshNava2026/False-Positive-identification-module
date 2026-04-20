@@ -3,12 +3,13 @@ import importlib.util
 import torch
 import cv2
 import numpy as np
+from .tracker import ByteTracker
 
 
 class DetectionModel:
-    """Loads YOLOX-based detection model and performs inference."""
+    """Loads YOLOX-based detection model and performs inference with object tracking."""
 
-    def __init__(self, pth_path, exp_path, classes_path, device='cpu'):
+    def __init__(self, pth_path, exp_path, classes_path, device='cpu', enable_tracking=True):
         self.device = torch.device(device)
         self.classes = self._load_classes(classes_path)
         self.model = None
@@ -17,6 +18,13 @@ class DetectionModel:
         self.test_conf = 0.4
         self.nms_thr = 0.45
         self.preproc = None
+        
+        # Tracking
+        self.enable_tracking = enable_tracking
+        self.tracker = ByteTracker(track_thresh=self.test_conf,
+                                   match_thresh=0.3,
+                                   max_time_lost=30) if enable_tracking else None
+        self.frame_count = 0
 
         self._load_yolox_model(pth_path, exp_path)
 
@@ -58,33 +66,63 @@ class DetectionModel:
             classes = [line.strip() for line in f if line.strip()]
         return classes if classes else ['object']
 
+    def get_anomalies(self):
+        """Get detected false positives and missed detections from tracking history."""
+        if self.enable_tracking and self.tracker:
+            return self.tracker.get_anomalies()
+        return {
+            'false_positives': [],
+            'missed_detections': [],
+            'total_tracks': 0,
+            'active_tracks': 0
+        }
+
+    def get_track_summary(self, track_id):
+        """Get detailed summary of a specific track."""
+        if self.enable_tracking and self.tracker:
+            return self.tracker.get_track_summary(track_id)
+        return None
+
+    def reset_tracker(self):
+        """Reset tracker for new video/stream."""
+        if self.enable_tracking and self.tracker:
+            self.tracker.reset()
+            self.frame_count = 0
+
     def predict(self, image_bgr):
         if self.model is None:
             h, w, _ = image_bgr.shape
-            return [{'bbox': [int(w * 0.2), int(h * 0.2), int(w * 0.8), int(h * 0.8)],
+            detections = [{'bbox': [int(w * 0.2), int(h * 0.2), int(w * 0.8), int(h * 0.8)],
                      'label': 'dummy', 'conf': 0.5}]
+        else:
+            image_norm, ratio = self.preproc(image_bgr, self.input_size)
+            image_norm = image_norm[np.newaxis, :].astype(np.float32)
+            image_norm = torch.from_numpy(image_norm).to(self.device)
 
-        image_norm, ratio = self.preproc(image_bgr, self.input_size)
-        image_norm = image_norm[np.newaxis, :].astype(np.float32)
-        image_norm = torch.from_numpy(image_norm).to(self.device)
+            with torch.no_grad():
+                outputs = self.model(image_norm)
+                outputs = self.postprocess(outputs, self.exp.num_classes, self.test_conf, self.nms_thr)[0]
 
-        with torch.no_grad():
-            outputs = self.model(image_norm)
-            outputs = self.postprocess(outputs, self.exp.num_classes, self.test_conf, self.nms_thr)[0]
-
-        detections = []
-        if outputs is not None:
-            outputs = outputs.cpu().numpy()
-            for det in outputs:
-                if len(det) >= 6:
-                    x1, y1, x2, y2, score, cls = det[:6]
-                    x1 /= ratio
-                    y1 /= ratio
-                    x2 /= ratio
-                    y2 /= ratio
-                    x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
-                    label = self.classes[int(cls)] if int(cls) < len(self.classes) else f'class_{int(cls)}'
-                    detections.append({'bbox': [x1, y1, x2, y2],
-                                       'label': label,
-                                       'conf': float(score)})
+            detections = []
+            if outputs is not None:
+                outputs = outputs.cpu().numpy()
+                for det in outputs:
+                    if len(det) >= 6:
+                        x1, y1, x2, y2, score, cls = det[:6]
+                        x1 /= ratio
+                        y1 /= ratio
+                        x2 /= ratio
+                        y2 /= ratio
+                        x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
+                        label = self.classes[int(cls)] if int(cls) < len(self.classes) else f'class_{int(cls)}'
+                        detections.append({'bbox': [x1, y1, x2, y2],
+                                           'label': label,
+                                           'conf': float(score)})
+        
+        # Apply tracking if enabled
+        if self.enable_tracking and self.tracker:
+            self.frame_count += 1
+            tracked_detections = self.tracker.update(detections, self.frame_count)
+            return tracked_detections
+        
         return detections

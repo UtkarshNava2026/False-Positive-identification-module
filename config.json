@@ -1,9 +1,9 @@
 {
   "model": {
-    "pth_path": "/home/navavision/Utkarsh-Workspace/custom/best_ckpt.pth",
-    "exp_path": "/home/navavision/Utkarsh-Workspace/custom/yolox_voc_s.py",
-    "classes_path": "/home/navavision/Utkarsh-Workspace/custom/class-dock.txt",
-    "device": "cuda"
+    "pth_path": "O:\\mondelich\\mondelich.pth",
+    "exp_path": "O:\\mondelich\\exp.py",
+    "classes_path": "O:\\mondelich\\class.txt",
+    "device": "cpu"
   },
   "video": {
     "fps": 33
