@@ -5,6 +5,14 @@ from xml.dom import minidom
 from PIL import Image
 import cv2
 
+# False-positive mining exports use a single class so every box trains as "person".
+PERSON_FP_CLASS = "person"
+
+
+def detections_as_person_labels(detections):
+    """Each exported object uses class name person (bbox/conf/track_id preserved)."""
+    return [{**det, "label": PERSON_FP_CLASS} for det in detections]
+
 
 def export_yolo(image_path, bboxes, class_names, output_dir):
     img = Image.open(image_path)
@@ -105,7 +113,7 @@ def export_false_positive_frames(fp_frame_data, output_dir, class_names, format_
     Args:
         fp_frame_data: Dict {frame_id: {detections, frame_image, timestamp}}
         output_dir: Base output directory
-        class_names: List of class names
+        class_names: Kept for API compatibility; every box is written as class "person".
         format_type: 'yolo', 'voc', or 'coco'
     
     Returns:
@@ -119,11 +127,12 @@ def export_false_positive_frames(fp_frame_data, output_dir, class_names, format_
     
     exported_frames = 0
     exported_detections = 0
+    person_class_names = [PERSON_FP_CLASS]
     metadata = {
         'total_frames': len(fp_frame_data),
         'exported_frames': 0,
         'format': format_type,
-        'class_names': class_names,
+        'class_names': person_class_names,
         'frames': []
     }
     
@@ -134,7 +143,7 @@ def export_false_positive_frames(fp_frame_data, output_dir, class_names, format_
             continue
         
         frame_image = frame_data['frame_image']
-        detections = frame_data.get('detections', [])
+        detections = detections_as_person_labels(frame_data.get('detections', []))
         
         # Save frame image
         image_filename = f"frame_{frame_id:06d}.jpg"
@@ -143,11 +152,11 @@ def export_false_positive_frames(fp_frame_data, output_dir, class_names, format_
         
         # Save annotations based on format
         if format_type == 'yolo':
-            _export_frame_yolo(image_path, detections, class_names, labels_dir, frame_id)
+            _export_frame_yolo(image_path, detections, person_class_names, labels_dir, frame_id)
         elif format_type == 'voc':
-            _export_frame_voc(image_path, detections, class_names, labels_dir, frame_id)
+            _export_frame_voc(image_path, detections, person_class_names, labels_dir, frame_id)
         elif format_type == 'coco':
-            _export_frame_coco(image_path, detections, class_names, labels_dir, frame_id)
+            _export_frame_coco(image_path, detections, person_class_names, labels_dir, frame_id)
         
         # Update metadata
         metadata['frames'].append({

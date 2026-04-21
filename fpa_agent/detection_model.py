@@ -107,17 +107,26 @@ class DetectionModel:
             if outputs is not None:
                 outputs = outputs.cpu().numpy()
                 for det in outputs:
-                    if len(det) >= 6:
-                        x1, y1, x2, y2, score, cls = det[:6]
-                        x1 /= ratio
-                        y1 /= ratio
-                        x2 /= ratio
-                        y2 /= ratio
-                        x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
-                        label = self.classes[int(cls)] if int(cls) < len(self.classes) else f'class_{int(cls)}'
-                        detections.append({'bbox': [x1, y1, x2, y2],
-                                           'label': label,
-                                           'conf': float(score)})
+                    # YOLOX postprocess: (x1,y1,x2,y2, obj_conf, class_conf, class_id); do not use [:6] or class id is wrong.
+                    if len(det) >= 7:
+                        x1, y1, x2, y2 = det[0], det[1], det[2], det[3]
+                        obj_conf = float(det[4])
+                        class_conf = float(det[5])
+                        cls = int(det[6])
+                        score = obj_conf * class_conf
+                    elif len(det) >= 6:
+                        x1, y1, x2, y2, score, cls = det[0], det[1], det[2], det[3], det[4], int(det[5])
+                    else:
+                        continue
+                    x1 /= ratio
+                    y1 /= ratio
+                    x2 /= ratio
+                    y2 /= ratio
+                    x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
+                    label = self.classes[cls] if cls < len(self.classes) else f'class_{cls}'
+                    detections.append({'bbox': [x1, y1, x2, y2],
+                                       'label': label,
+                                       'conf': float(score)})
         
         # Apply tracking if enabled
         if self.enable_tracking and self.tracker:

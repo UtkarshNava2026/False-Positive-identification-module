@@ -11,7 +11,13 @@ from datetime import datetime
 from .config_manager import ConfigManager
 from .style_manager import StyleSheetManager
 from .threads import ModelLoaderThread, VideoThread
-from .export_utils import export_yolo, export_voc, export_coco, export_false_positive_frames
+from .export_utils import (
+    export_yolo,
+    export_voc,
+    export_coco,
+    export_false_positive_frames,
+    detections_as_person_labels,
+)
 
 
 class MainWindow(QMainWindow):
@@ -531,14 +537,13 @@ class MainWindow(QMainWindow):
         temp_img_path = os.path.join(out_dir, "exported_frame.jpg")
         cv2.imwrite(temp_img_path, self.current_raw_frame)
         fmt = self.export_format.currentText().lower()
+        person_dets = detections_as_person_labels(self.current_detections)
+        person_classes = ["person"]
         if fmt == "yolo":
-            export_yolo(temp_img_path, self.current_detections,
-                        self.model.classes if self.model else ['object'], out_dir)
+            export_yolo(temp_img_path, person_dets, person_classes, out_dir)
         elif fmt == "voc":
-            export_voc(temp_img_path, self.current_detections,
-                       self.model.classes if self.model else ['object'], out_dir)
+            export_voc(temp_img_path, person_dets, person_classes, out_dir)
         elif fmt == "coco":
-            export_coco(temp_img_path, self.current_detections,
-                        self.model.classes if self.model else ['object'], out_dir)
+            export_coco(temp_img_path, person_dets, person_classes, out_dir)
         QMessageBox.information(self, "Export complete",
                                 f"Frame and annotation saved in:\n{out_dir}")
