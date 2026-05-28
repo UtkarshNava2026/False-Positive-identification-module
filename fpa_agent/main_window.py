@@ -256,6 +256,7 @@ class MainWindow(QMainWindow):
     def load_rtsp(self):
         url = self.rtsp_edit.text().strip()
         if url:
+            self.lbl_video_path.setText(url)
             self.start_video_source(url)
 
     def open_image_file(self):
@@ -439,7 +440,12 @@ class MainWindow(QMainWindow):
         pass
 
     def load_model_dialog(self):
-        pth_path, _ = QFileDialog.getOpenFileName(self, "Select .pth model file", "", "PyTorch Model (*.pth)")
+        pth_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select model file (.pth / .onnx)",
+            "",
+            "Model Files (*.pth *.onnx);;PyTorch Model (*.pth);;ONNX Model (*.onnx)",
+        )
         if not pth_path:
             return
         exp_path, _ = QFileDialog.getOpenFileName(self, "Select experiment file", "", "All Files (*)")

@@ -1,12 +1,12 @@
 {
   "model": {
-    "pth_path": "O:\\mondelich\\mondelich.pth",
-    "exp_path": "O:\\mondelich\\exp.py",
-    "classes_path": "O:\\mondelich\\class.txt",
-    "device": "cpu"
+    "pth_path": "/home/navavision/Utkarsh_workspace/False-Positive-identification-module/int8 1.onnx",
+    "exp_path": "/home/navavision/Utkarsh_workspace/yolox_voc_s 3.py",
+    "classes_path": "/home/navavision/Utkarsh_workspace/False-Positive-identification-module/class.txt",
+    "device": "cuda"
   },
   "video": {
-    "fps": 33
+    "fps": 50
   },
   "ui": {
     "window_width": 1200,
@@ -16,6 +16,6 @@
     "text_size": 0.5
   },
   "export": {
-    "default_format": "YOLO"
+    "default_format": "VOC"
   }
 }

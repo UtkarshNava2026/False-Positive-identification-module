@@ -1,4 +1,6 @@
+import os
 import cv2
+from urllib.parse import unquote
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap
 
@@ -44,10 +46,36 @@ class VideoThread(QThread):
         self.frame_index = 0
         self.cap = None
 
+    def _open_capture(self, source: str):
+        src = source.strip()
+
+        # RTSP reliability: force FFMPEG backend + TCP transport + timeouts.
+        if src.lower().startswith("rtsp://"):
+            # Users often paste URL-encoded passwords (e.g. %23 for '#').
+            # FFMPEG generally expects the decoded form, so we unquote here.
+            src = unquote(src)
+
+            # These options are consumed by OpenCV's FFMPEG backend.
+            # If they're unsupported in a given build, they are safely ignored.
+            os.environ.setdefault(
+                "OPENCV_FFMPEG_CAPTURE_OPTIONS",
+                "rtsp_transport;tcp|stimeout;5000000|max_delay;500000",
+            )
+
+            cap = cv2.VideoCapture(src, cv2.CAP_FFMPEG)
+            try:
+                cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 8000)
+                cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 8000)
+            except Exception:
+                pass
+            return cap, src
+
+        return cv2.VideoCapture(src), src
+
     def run(self):
-        self.cap = cv2.VideoCapture(self.source)
+        self.cap, opened_source = self._open_capture(self.source)
         if not self.cap.isOpened():
-            print(f"Failed to open source: {self.source}")
+            print(f"Failed to open source: {opened_source}")
             self.finished_signal.emit()
             return
 
@@ -69,15 +97,8 @@ class VideoThread(QThread):
                     x1, y1, x2, y2 = det['bbox']
                     conf = det['conf']
                     label = det['label']
-                    
-                    # Include track ID if available
-                    if 'track_id' in det and det['track_id'] is not None:
-                        display_label = f"ID:{det['track_id']} {label} {conf:.2f}"
-                        # Different colors based on anomaly status
-                        color = (0, 255, 0)  # Default green
-                    else:
-                        display_label = f"{label} {conf:.2f}"
-                        color = (0, 255, 0)
+                    display_label = f"{label} {conf:.2f}"
+                    color = (0, 255, 0)
                     
                     cv2.rectangle(disp_frame, (x1, y1), (x2, y2), color, 2)
                     cv2.putText(disp_frame, display_label, (x1, y1 - 5),
@@ -95,7 +116,7 @@ class VideoThread(QThread):
                     anomalies = self.model.get_anomalies()
                     self.anomalies_signal.emit(anomalies)
 
-            self.msleep(30)
+            self.msleep(0)
 
         self.cap.release()
         self.finished_signal.emit()

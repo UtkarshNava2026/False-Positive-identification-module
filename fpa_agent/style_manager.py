@@ -11,6 +11,7 @@ class StyleSheetManager:
             QWidget {
                 background-color: #0d1b2a;
                 color: #e0e0e0;
+                font-family: "Inter", "Segoe UI", "Ubuntu", sans-serif;
             }
 
             QGroupBox {
@@ -20,7 +21,7 @@ class StyleSheetManager:
                 margin-top: 10px;
                 padding-top: 10px;
                 font-weight: bold;
-                font-size: 11px;
+                font-size: 12px;
             }
 
             QGroupBox::title {
@@ -36,7 +37,7 @@ class StyleSheetManager:
                 padding: 8px 16px;
                 border-radius: 5px;
                 font-weight: bold;
-                font-size: 10px;
+                font-size: 11px;
             }
 
             QPushButton:hover {
@@ -67,7 +68,7 @@ class StyleSheetManager:
 
             QLabel {
                 color: #e0e0e0;
-                font-size: 10px;
+                font-size: 11px;
             }
 
             QComboBox {
@@ -132,6 +133,45 @@ class StyleSheetManager:
                 background-color: #1a2a3a;
                 color: #e0e0e0;
                 border-top: 1px solid #1b3a52;
+            }
+
+            QListWidget {
+                background-color: #0e1825;
+                border: 2px solid #1b3a52;
+                border-radius: 6px;
+                padding: 4px;
+                font-size: 11px;
+            }
+
+            QListWidget::item {
+                padding: 8px 10px;
+                border-radius: 4px;
+            }
+
+            QListWidget::item:hover {
+                background-color: rgba(0, 168, 204, 0.15);
+            }
+
+            QListWidget::item:selected {
+                background-color: rgba(0, 212, 255, 0.22);
+                border: 1px solid rgba(0, 212, 255, 0.35);
+            }
+
+            QScrollBar:vertical {
+                background: #0e1825;
+                width: 10px;
+                margin: 2px;
+                border-radius: 5px;
+            }
+
+            QScrollBar::handle:vertical {
+                background: rgba(0, 212, 255, 0.35);
+                min-height: 20px;
+                border-radius: 5px;
+            }
+
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
             }
 
             QMessageBox QLabel {

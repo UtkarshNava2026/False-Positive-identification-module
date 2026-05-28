@@ -1,0 +1,14 @@
+person
+bike
+car
+truck
+tractor
+auto
+disinfection
+security_guard
+bus
+van
+ambulance
+pickup_truck
+bicycle
+
