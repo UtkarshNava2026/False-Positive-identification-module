@@ -3,7 +3,7 @@
     "pth_path": "/home/navavision/Utkarsh_workspace/False-Positive-identification-module/int8 1.onnx",
     "exp_path": "/home/navavision/Utkarsh_workspace/yolox_voc_s 3.py",
     "classes_path": "/home/navavision/Utkarsh_workspace/False-Positive-identification-module/class.txt",
-    "device": "cuda"
+    "device": "cpu"
   },
   "video": {
     "fps": 50

@@ -36,10 +36,14 @@ The application uses `config.json` to store and load settings. Edit this file to
 ### Configuration Options
 
 #### Model Configuration
-- **pth_path**: Path to your PyTorch model file (.pth)
+- **pth_path**: Path to your model file (`.pth` or `.onnx`)
 - **exp_path**: Path to your experiment configuration file (.yaml, .json, or custom format)
 - **classes_path**: Path to your class names file (one class name per line)
-- **device**: Device to use for inference ('cpu' or 'cuda')
+- **device**: Device to use for inference (`'cpu'` or `'cuda'`)
+  - For **PyTorch** models: passed to `torch.device(...)`
+  - For **ONNX** models:
+    - `'cpu'` → `CPUExecutionProvider`
+    - `'cuda'` → `CUDAExecutionProvider` (with CPU fallback)
 
 #### Video Configuration
 - **fps**: Frames per second for video playback (default: 33)
@@ -80,7 +84,7 @@ The application uses `config.json` to store and load settings. Edit this file to
 5. Run the application - it will automatically load the model
 
 ### Method 2: Use the GUI
-1. Click "Load Model (.pth + exp + classes)"
+1. Click "Load Model (.pth / .onnx + exp + classes)"
 2. Select your model files via the dialog boxes
 3. The paths are saved to `config.json` automatically
 4. Model loads asynchronously without freezing the UI

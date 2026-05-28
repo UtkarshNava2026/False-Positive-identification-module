@@ -8,3 +8,5 @@ yolox_voc_s (2).py
 class-dock.txt
 mondelich.pth
 .cursor/
+mondeleze-25may.pth
+*.pth

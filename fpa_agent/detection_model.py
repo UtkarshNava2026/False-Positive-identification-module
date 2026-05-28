@@ -79,10 +79,12 @@ class DetectionModel:
                 "Install it via `pip install onnxruntime` (or onnxruntime-gpu)."
             ) from e
 
-        providers = []
-        if self.device_str.startswith("cuda") or self.device_str == "gpu":
-            providers.append("CUDAExecutionProvider")
-        providers.append("CPUExecutionProvider")
+        # Providers are driven by config.json `model.device`.
+        # - cpu  -> CPUExecutionProvider only
+        # - cuda -> CUDAExecutionProvider with CPU fallback (if some ops fall back)
+        device_lower = (self.device_str or "cpu").lower()
+        use_cuda = device_lower.startswith("cuda") or device_lower == "gpu"
+        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if use_cuda else ["CPUExecutionProvider"]
 
         try:
             self.ort_session = ort.InferenceSession(onnx_path, providers=providers)
