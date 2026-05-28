@@ -1,23 +1,29 @@
 {
   "model": {
-    "pth_path": "/home/navavision/Utkarsh_workspace/False-Positive-identification-module/int8 1.onnx",
+    "path": "/home/navavision/Utkarsh_workspace/False-Positive-identification-module/sakku-gate.pth",
+    "pth_path": "/home/navavision/Utkarsh_workspace/False-Positive-identification-module/sakku-gate.pth",
     "exp_path": "/home/navavision/Utkarsh_workspace/False-Positive-identification-module/yolox_voc_s 3.py",
     "classes_path": "/home/navavision/Utkarsh_workspace/False-Positive-identification-module/class.txt",
-    "device": "cpu",
-    "path": "/home/navavision/Utkarsh_workspace/False-Positive-identification-module/int8 1.onnx"
+    "device": "cuda"
+  },
+  "drift": {
+    "reference_path": "embeddings.npy",
+    "encoder": "yolox_standard",
+    "input_size": [
+      640,
+      640
+    ],
+    "knn_sample_size": 2048
   },
   "video": {
-    "fps": 50,
-    "frame_step": 2
+    "fps": 12,
+    "frame_step": 1
   },
   "ui": {
-    "window_width": 1200,
-    "window_height": 800,
-    "display_confidence": true,
-    "box_thickness": 2,
-    "text_size": 0.5
+    "window_width": 1280,
+    "window_height": 800
   },
   "export": {
-    "default_format": "VOC"
+    "default_format": "YOLO"
   }
 }

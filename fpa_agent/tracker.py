@@ -407,6 +407,8 @@ class ByteTracker:
             'lost_tracks': len(self.lost_tracks)
         }
 
+    # Motion-based drift removed; keep tracker focused on tracking/anomalies.
+
     def get_track_summary(self, track_id: int) -> Dict:
         """Get detailed summary for a specific track."""
         if track_id in self.active_tracks:

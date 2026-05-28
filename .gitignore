@@ -1,12 +1,54 @@
+# --- Keep in repo: *.onnx only (do NOT ignore *.onnx) ---
+
+# ONNX external weight blobs (large; keep the .onnx graph in repo)
+*.onnx.data
+
+# Reference embedding banks (rebuild: build_reference_embeddings.py)
+embeddings.npy
+embeddings.pkl
+
+# PyTorch checkpoints (place sakku-gate.pth locally; not on GitHub)
+*.pth
+*.pt
+*.ckpt
+best_ckpt.pth
+mondelich.pth
+mondeleze-25may.pth
+sakku-gate.pth
+
+# Vendored YOLOX clone
+YOLOX/
+
+# Python
 .venv/
 venv/
 __pycache__/
-*.pyc
-YOLOX/
-best_ckpt.pth
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+
+# Cursor / IDE / OS
+.cursor/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Duplicate / unused experiment & class lists
 yolox_voc_s (2).py
 class-dock.txt
-mondelich.pth
-.cursor/
-mondeleze-25may.pth
-*.pth
+
+# App export & logs
+exports/
+fp_exports/
+output/
+*.log
+
+# Optional local config overrides
+.env
+.env.*
