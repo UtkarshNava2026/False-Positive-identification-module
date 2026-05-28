@@ -1,6 +1,6 @@
 import os
 import cv2
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse, urlunparse
 import time
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap
@@ -55,8 +55,38 @@ class VideoThread(QThread):
         # RTSP reliability: force FFMPEG backend + TCP transport + timeouts.
         if src.lower().startswith("rtsp://"):
             # Users often paste URL-encoded passwords (e.g. %23 for '#').
-            # FFMPEG generally expects the decoded form, so we unquote here.
-            src = unquote(src)
+            # Properly decode only the username/password, not the entire URL,
+            # to avoid issues with special characters like '#' in passwords.
+            try:
+                parsed = urlparse(src)
+                if parsed.username or parsed.password:
+                    # Decode username and password
+                    username = unquote(parsed.username) if parsed.username else ""
+                    password = unquote(parsed.password) if parsed.password else ""
+                    
+                    # Reconstruct netloc with decoded credentials
+                    if password:
+                        netloc = f"{username}:{password}@{parsed.hostname}"
+                    else:
+                        netloc = f"{username}@{parsed.hostname}" if username else parsed.hostname
+                    
+                    # Add port if present
+                    if parsed.port:
+                        netloc = f"{netloc}:{parsed.port}"
+                    
+                    # Reconstruct the URL
+                    src = urlunparse((
+                        parsed.scheme,
+                        netloc,
+                        parsed.path,
+                        parsed.params,
+                        parsed.query,
+                        parsed.fragment
+                    ))
+            except Exception as e:
+                print(f"Warning: Could not parse RTSP URL properly: {e}")
+                # Fall back to using the original URL if parsing fails
+                pass
 
             # These options are consumed by OpenCV's FFMPEG backend.
             # If they're unsupported in a given build, they are safely ignored.

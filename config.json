@@ -1,10 +1,10 @@
 {
   "model": {
-    "pth_path": "/home/navavision/Utkarsh_workspace/False-Positive-identification-module/int8 1.onnx",
-    "exp_path": "/home/navavision/Utkarsh_workspace/False-Positive-identification-module/yolox_voc_s 3.py",
-    "classes_path": "/home/navavision/Utkarsh_workspace/False-Positive-identification-module/class.txt",
+    "exp_path": "yolox_voc_s.py",
+    "classes_path": "class.txt",
     "device": "cpu",
-    "path": "/home/navavision/Utkarsh_workspace/False-Positive-identification-module/int8 1.onnx"
+    "path": "int8 1.onnx",
+    "pth_path": "int8 1.onnx"
   },
   "video": {
     "fps": 50,
