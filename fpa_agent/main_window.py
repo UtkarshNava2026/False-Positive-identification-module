@@ -3,7 +3,7 @@ import cv2
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QFileDialog, QLineEdit, QComboBox,
                              QMessageBox, QSlider, QGroupBox, QProgressBar,
-                             QListWidget, QStatusBar, QListWidgetItem)
+                             QListWidget, QStatusBar, QListWidgetItem, QSpinBox)
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QImage, QPixmap
 import json
@@ -50,12 +50,12 @@ class MainWindow(QMainWindow):
         self.try_load_config_model()
 
     def try_load_config_model(self):
-        pth_path = self.config.get("model.pth_path")
-        if pth_path and os.path.exists(pth_path):
+        model_path = self.config.get("model.path") or self.config.get("model.pth_path")
+        if model_path and os.path.exists(model_path):
             exp_path = self.config.get("model.exp_path", "")
             classes_path = self.config.get("model.classes_path", "")
             device = self.config.get("model.device", "cpu")
-            self.load_model_async(pth_path, exp_path, classes_path, device)
+            self.load_model_async(model_path, exp_path, classes_path, device)
 
     def init_ui(self):
         central_widget = QWidget()
@@ -171,6 +171,31 @@ class MainWindow(QMainWindow):
         control_layout.addWidget(self.play_pause_btn)
         control_layout.addWidget(self.slider)
 
+        speed_layout = QHBoxLayout()
+        speed_label = QLabel("Validation speed:")
+        self.fps_spin = QSpinBox()
+        self.fps_spin.setRange(0, 60)
+        self.fps_spin.setSingleStep(5)
+        self.fps_spin.setSuffix(" fps")
+        self.fps_spin.setToolTip("0 = unlimited (no throttling)")
+        self.fps_spin.setValue(int(self.config.get("video.fps", 33) or 0))
+        self.fps_spin.valueChanged.connect(self.on_target_fps_changed)
+
+        skip_label = QLabel("Skip:")
+        self.skip_spin = QSpinBox()
+        self.skip_spin.setRange(1, 30)
+        self.skip_spin.setSingleStep(1)
+        self.skip_spin.setPrefix("x")
+        self.skip_spin.setToolTip("Process every Nth frame (x1 = no skipping)")
+        self.skip_spin.setValue(int(self.config.get("video.frame_step", 1) or 1))
+        self.skip_spin.valueChanged.connect(self.on_frame_step_changed)
+
+        speed_layout.addWidget(speed_label)
+        speed_layout.addWidget(self.fps_spin)
+        speed_layout.addStretch(1)
+        speed_layout.addWidget(skip_label)
+        speed_layout.addWidget(self.skip_spin)
+
         fp_layout = QHBoxLayout()
         self.current_frame_label = QLabel("Frame: 0")
         self.current_frame_label.setMinimumWidth(120)
@@ -213,6 +238,7 @@ class MainWindow(QMainWindow):
         export_fp_layout.addWidget(self.btn_clear_fp)
 
         layout.addLayout(control_layout)
+        layout.addLayout(speed_layout)
         layout.addLayout(fp_layout)
         layout.addWidget(list_label)
         layout.addWidget(self.fp_list)
@@ -274,7 +300,9 @@ class MainWindow(QMainWindow):
         self.false_positive_frames = []
         self.fp_frame_data = {}
         self.update_fp_list()
-        self.video_thread = VideoThread(source, self.model)
+        target_fps = int(self.config.get("video.fps", 0) or 0)
+        frame_step = int(self.config.get("video.frame_step", 1) or 1)
+        self.video_thread = VideoThread(source, self.model, target_fps=target_fps, frame_step=frame_step)
         self.video_thread.change_pixmap_signal.connect(self.update_display)
         self.video_thread.finished_signal.connect(self.on_video_finished)
         self.video_thread.start()
@@ -282,6 +310,18 @@ class MainWindow(QMainWindow):
         self.play_pause_btn.setText("⏸️ Pause")
         self.slider.setEnabled(False)
         self.status_bar.showMessage(f"▶️ Playing: {source}")
+
+    def on_target_fps_changed(self, value: int):
+        self.config.set("video.fps", int(value))
+        self.config.save()
+        if self.video_thread:
+            self.video_thread.target_fps = int(value)
+
+    def on_frame_step_changed(self, value: int):
+        self.config.set("video.frame_step", int(value))
+        self.config.save()
+        if self.video_thread:
+            self.video_thread.frame_step = max(1, int(value))
 
     def start_image_source(self, path):
         if self.video_thread:
@@ -476,6 +516,8 @@ class MainWindow(QMainWindow):
             self.lbl_model_status.setText(f"✓ Model loaded: {os.path.basename(self.model_loader_thread.pth_path)}")
             self.lbl_model_status.setStyleSheet("color: #4ade80;")
             QMessageBox.information(self, "Success", message)
+            # `model.path` is the canonical field; `model.pth_path` kept for backward compatibility.
+            self.config.set("model.path", self.model_loader_thread.pth_path)
             self.config.set("model.pth_path", self.model_loader_thread.pth_path)
             self.config.set("model.exp_path", self.model_loader_thread.exp_path)
             self.config.set("model.classes_path", self.model_loader_thread.classes_path)

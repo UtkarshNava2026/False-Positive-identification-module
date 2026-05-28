@@ -21,12 +21,13 @@ class ConfigManager:
     def _default_config(self):
         return {
             "model": {
+                "path": "",
                 "pth_path": "",
                 "exp_path": "",
                 "classes_path": "",
                 "device": "cpu"
             },
-            "video": {"fps": 33},
+            "video": {"fps": 33, "frame_step": 1},
             "ui": {
                 "window_width": 1100,
                 "window_height": 720,

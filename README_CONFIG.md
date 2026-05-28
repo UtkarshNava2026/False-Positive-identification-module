@@ -12,6 +12,7 @@ The application uses `config.json` to store and load settings. Edit this file to
 ```json
 {
   "model": {
+    "path": "path/to/your/model.onnx",
     "pth_path": "path/to/your/model.pth",
     "exp_path": "path/to/your/experiment.yaml",
     "classes_path": "path/to/classes.txt",
@@ -36,6 +37,7 @@ The application uses `config.json` to store and load settings. Edit this file to
 ### Configuration Options
 
 #### Model Configuration
+- **path**: Path to your model file (`.pth` or `.onnx`). **Recommended**.
 - **pth_path**: Path to your model file (`.pth` or `.onnx`)
 - **exp_path**: Path to your experiment configuration file (.yaml, .json, or custom format)
 - **classes_path**: Path to your class names file (one class name per line)
@@ -46,7 +48,8 @@ The application uses `config.json` to store and load settings. Edit this file to
     - `'cuda'` → `CUDAExecutionProvider` (with CPU fallback)
 
 #### Video Configuration
-- **fps**: Frames per second for video playback (default: 33)
+- **fps**: Target processing/display FPS for validation (0 = unlimited)
+- **frame_step**: Process every Nth frame (x1 = no skipping). Use this to “skip frames” while validating.
 
 #### UI Configuration
 - **window_width**: Default window width in pixels (default: 1200)

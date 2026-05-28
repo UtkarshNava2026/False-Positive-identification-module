@@ -35,8 +35,8 @@ class DetectionModel:
 
     def _load_model(self, model_path, exp_path):
         from yolox.data.data_augment import preproc
+        # NOTE: we keep YOLOX postprocess as a fallback only.
         from yolox.utils import postprocess
-
         self.postprocess = postprocess
         self.preproc = preproc
 
@@ -233,8 +233,28 @@ class DetectionModel:
             else:
                 image_norm_t = torch.from_numpy(image_norm).to(self.device)
                 with torch.no_grad():
-                    outputs = self.model(image_norm_t)
-                    outputs = self.postprocess(outputs, self.exp.num_classes, self.test_conf, self.nms_thr)[0]
+                    raw_out = self.model(image_norm_t)
+
+                # Prefer using the exact same decode + NMS for PyTorch and ONNX to keep boxes identical.
+                # YOLOX models typically return raw predictions of shape [B, N, 5 + C].
+                raw_tensor = raw_out
+                if isinstance(raw_out, (tuple, list)) and len(raw_out) > 0:
+                    raw_tensor = raw_out[0]
+
+                decoded = None
+                try:
+                    raw_np = raw_tensor.detach().float().cpu().numpy()
+                    # Expect [1, N, 5+C] (or [N, 5+C]).
+                    if raw_np.ndim in (2, 3) and raw_np.shape[-1] >= 6:
+                        decoded = self._yolox_decode_and_nms(raw_np, ratio)
+                except Exception:
+                    decoded = None
+
+                if decoded is not None:
+                    outputs = decoded  # Nx6 float32
+                else:
+                    # Fallback to YOLOX's built-in postprocess if model output format differs.
+                    outputs = self.postprocess(raw_out, self.exp.num_classes, self.test_conf, self.nms_thr)[0]
 
             detections = []
             if outputs is not None:

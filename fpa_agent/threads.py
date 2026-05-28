@@ -1,6 +1,7 @@
 import os
 import cv2
 from urllib.parse import unquote
+import time
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap
 
@@ -36,10 +37,12 @@ class VideoThread(QThread):
     finished_signal = pyqtSignal()
     anomalies_signal = pyqtSignal(dict)
 
-    def __init__(self, source, model):
+    def __init__(self, source, model, target_fps: int = 0, frame_step: int = 1):
         super().__init__()
         self.source = source
         self.model = model
+        self.target_fps = int(target_fps) if target_fps else 0
+        self.frame_step = max(1, int(frame_step) if frame_step else 1)
         self.paused = False
         self.stop_flag = False
         self.current_frame = None
@@ -83,8 +86,19 @@ class VideoThread(QThread):
         if self.model and hasattr(self.model, 'reset_tracker'):
             self.model.reset_tracker()
 
+        last_emit_time = time.monotonic()
         while not self.stop_flag:
             if not self.paused:
+                # Skip frames (fast validation): grab without decode.
+                for _ in range(self.frame_step - 1):
+                    grabbed = self.cap.grab()
+                    if not grabbed:
+                        self.stop_flag = True
+                        break
+                    self.frame_index += 1
+                if self.stop_flag:
+                    break
+
                 ret, frame = self.cap.read()
                 if not ret:
                     break
@@ -116,7 +130,17 @@ class VideoThread(QThread):
                     anomalies = self.model.get_anomalies()
                     self.anomalies_signal.emit(anomalies)
 
-            self.msleep(0)
+                # Throttle processing/display FPS if configured.
+                if self.target_fps and self.target_fps > 0:
+                    now = time.monotonic()
+                    frame_period = 1.0 / float(self.target_fps)
+                    elapsed = now - last_emit_time
+                    sleep_s = frame_period - elapsed
+                    if sleep_s > 0:
+                        self.msleep(int(sleep_s * 1000))
+                    last_emit_time = time.monotonic()
+            else:
+                self.msleep(5)
 
         self.cap.release()
         self.finished_signal.emit()
