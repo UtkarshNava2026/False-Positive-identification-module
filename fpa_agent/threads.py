@@ -29,6 +29,7 @@ class ModelLoaderThread(QThread):
         drift_onnx_embedding_path=None,
         drift_input_size=None,
         drift_encoder="yolox_standard",
+        drift_pool_mode="last_scale",
         drift_projection_type="linear_relu",
         drift_projection_weights=None,
     ):
@@ -41,6 +42,7 @@ class ModelLoaderThread(QThread):
         self.drift_onnx_embedding_path = drift_onnx_embedding_path
         self.drift_input_size = drift_input_size
         self.drift_encoder = drift_encoder
+        self.drift_pool_mode = drift_pool_mode
         self.drift_projection_type = drift_projection_type
         self.drift_projection_weights = drift_projection_weights
 
@@ -58,6 +60,7 @@ class ModelLoaderThread(QThread):
                 drift_onnx_embedding_path=self.drift_onnx_embedding_path,
                 drift_input_size=self.drift_input_size,
                 drift_encoder=self.drift_encoder,
+                drift_pool_mode=self.drift_pool_mode,
                 drift_projection_type=self.drift_projection_type,
                 drift_projection_weights=self.drift_projection_weights,
             )

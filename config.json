@@ -13,10 +13,12 @@
       640,
       640
     ],
-    "knn_sample_size": 2048
+    "pool_mode": "last_scale",
+    "expected_dim": 512,
+    "knn_sample_size": 8192
   },
   "video": {
-    "fps": 12,
+    "fps": 25,
     "frame_step": 1
   },
   "ui": {

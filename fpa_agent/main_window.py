@@ -605,6 +605,7 @@ class MainWindow(QMainWindow):
         onnx_emb = self.config.get("drift.onnx_embedding_path") or ""
         drift_size = self.config.get("drift.input_size")
         drift_enc = self.config.get("drift.encoder", "yolox_standard")
+        drift_pool = self.config.get("drift.pool_mode", "last_scale")
         drift_ptype = self.config.get("drift.projection_type", "linear_relu")
         drift_pweights = self.config.get("drift.projection_weights") or ""
         self.model_loader_thread = ModelLoaderThread(
@@ -616,6 +617,7 @@ class MainWindow(QMainWindow):
             drift_onnx_embedding_path=onnx_emb or None,
             drift_input_size=drift_size,
             drift_encoder=drift_enc,
+            drift_pool_mode=drift_pool,
             drift_projection_type=drift_ptype,
             drift_projection_weights=drift_pweights or None,
         )

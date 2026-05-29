@@ -45,10 +45,30 @@ def letterbox_preprocess_bgr(
     return torch.from_numpy(tensor)
 
 
+def _forward_backbone_and_neck(yolox_model: nn.Module, x: torch.Tensor):
+    """
+    Image → backbone → neck (PAFPN), matching the reference extraction script.
+
+    - Custom loaders: model.backbone (CSPDarknet) then model.neck (PAFPN).
+    - Stock YOLOX: model.backbone is YOLOPAFPN (CSPDarknet + PAFPN inside one module).
+    """
+    neck = getattr(yolox_model, "neck", None)
+    backbone = getattr(yolox_model, "backbone", None)
+    if backbone is None:
+        raise RuntimeError("YOLOX model has no backbone")
+
+    if neck is not None:
+        backbone_feats = backbone(x)
+        return neck(backbone_feats)
+
+    # Stock YOLOX: YOLOPAFPN.forward = CSPDarknet then PAFPN neck
+    return backbone(x)
+
+
 class YOLOXStandardEmbedder:
     """
-    Team YOLOX Standard EmbeddingExtractor:
-    backbone → neck → multi-scale GAP → concat → L2.
+    Reference pipeline (embeddings.npy):
+      Letterbox 640 → Backbone → Neck (PAFPN) → AdaptiveAvgPool2d → Flatten → L2.
     """
 
     def __init__(
@@ -57,7 +77,7 @@ class YOLOXStandardEmbedder:
         device: Union[str, torch.device],
         input_size: Tuple[int, int] = (640, 640),
         expected_dim: int = 512,
-        pool_mode: str = "auto",
+        pool_mode: str = "last_scale",
     ):
         self.model = yolox_model
         self.device = torch.device(device if device != "gpu" else "cuda")
@@ -73,40 +93,33 @@ class YOLOXStandardEmbedder:
 
     @torch.inference_mode()
     def extract_bgr(self, image_bgr: np.ndarray) -> np.ndarray:
+        # 1) Letterbox 640×640 (BGR→RGB, pad 114, float32 CHW, no /255)
         x = letterbox_preprocess_bgr(image_bgr, self.input_size).to(self.device)
 
-        backbone_feats = self.model.backbone(x)
-        # Team script: backbone → neck. In stock YOLOX, YOLOPAFPN is `backbone` and
-        # already returns fused multi-scale features (no separate .neck module).
-        neck = getattr(self.model, "neck", None)
-        if neck is not None:
-            neck_feats = neck(backbone_feats)
-        else:
-            neck_feats = backbone_feats
-
+        # 2) Backbone → 3) Neck (PAFPN)
+        neck_feats = _forward_backbone_and_neck(self.model, x)
         if not isinstance(neck_feats, (list, tuple)):
             neck_feats = (neck_feats,)
 
-        def _pool_feats(feats):
-            parts = []
-            for feat in feats:
-                parts.append(F.adaptive_avg_pool2d(feat, 1).flatten(1))
-            return parts
-
-        parts = _pool_feats(neck_feats)
+        # 4) AdaptiveAvgPool2d(·, 1) → 5) Flatten (per scale)
+        parts = [
+            F.adaptive_avg_pool2d(feat, 1).flatten(1) for feat in neck_feats
+        ]
         concat_dim = sum(p.shape[1] for p in parts)
 
         use_concat = self.pool_mode == "concat_all"
         if self.pool_mode == "auto":
             use_concat = concat_dim == self.expected_dim
         if use_concat:
+            # All PAFPN scales: 128+256+512 = 896 for YOLOX-S width 0.5
             embedding = torch.cat(parts, dim=1).squeeze(0)
-            mode_label = "concat"
+            mode_label = "concat_all"
         else:
-            # YOLOX-S PAFPN outputs 128+256+512; embeddings.npy is 512-D (last scale).
+            # 512-D bank (e.g. ~69k training images): finest PAFPN scale (512 ch)
             embedding = parts[-1].squeeze(0)
             mode_label = "last_scale"
 
+        # 6) L2 normalize
         embedding = F.normalize(embedding, dim=0)
         out = embedding.cpu().numpy().astype(np.float32)
 
@@ -118,8 +131,11 @@ class YOLOXStandardEmbedder:
         return out
 
     def description(self) -> str:
-        mode = getattr(self, "_last_pool_mode", "auto")
-        return f"YOLOX PAFPN {mode} @ {self.input_size[0]}x{self.input_size[1]}"
+        mode = getattr(self, "_last_pool_mode", self.pool_mode)
+        return (
+            f"YOLOX backbone+neck GAP {mode} @ "
+            f"{self.input_size[0]}x{self.input_size[1]}"
+        )
 
     def close(self):
         pass
@@ -218,7 +234,7 @@ def create_drift_embedder(
     """Factory: default is YOLOXStandardEmbedder."""
     enc = (encoder or "yolox_standard").lower()
     if enc in ("yolox", "yolox_standard", "standard", "neck_concat"):
-        pool_mode = legacy_kwargs.get("pool_mode", "auto")
+        pool_mode = legacy_kwargs.get("pool_mode", "last_scale")
         return YOLOXStandardEmbedder(
             yolox_model, device, input_size=input_size, pool_mode=pool_mode
         )

@@ -51,6 +51,12 @@ def main():
     ap.add_argument("--images", required=True, help="Image folder, image path, or video")
     ap.add_argument("--output", default="embeddings.npy")
     ap.add_argument("--input-size", nargs=2, type=int, default=[640, 640])
+    ap.add_argument(
+        "--pool-mode",
+        default="last_scale",
+        choices=("last_scale", "concat_all", "auto"),
+        help="GAP pooling: last_scale=512-D (YOLOX-S bank), concat_all=all PAFPN scales",
+    )
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--max", type=int, default=0)
     args = ap.parse_args()
@@ -66,6 +72,7 @@ def main():
         device=args.device,
         drift_input_size=isize,
         drift_encoder="yolox_standard",
+        drift_pool_mode=args.pool_mode,
     )
     if not model.can_encode_drift_embedding():
         print("ERROR: YOLOX standard drift embedder not available (need .pth with backbone+neck).")

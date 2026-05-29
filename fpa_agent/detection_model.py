@@ -20,7 +20,7 @@ class DetectionModel:
         drift_onnx_embedding_path=None,
         drift_input_size=None,
         drift_encoder="yolox_standard",
-        drift_pool_mode="auto",
+        drift_pool_mode="last_scale",
         drift_projection_type="linear_relu",
         drift_projection_weights=None,
     ):
@@ -41,7 +41,7 @@ class DetectionModel:
         self._drift_onnx_embedding_path = drift_onnx_embedding_path
         self._drift_input_size = drift_input_size
         self._drift_encoder = drift_encoder or "yolox_standard"
-        self._drift_pool_mode = drift_pool_mode or "auto"
+        self._drift_pool_mode = drift_pool_mode or "last_scale"
         self._drift_projection_type = drift_projection_type or "linear_relu"
         self._drift_projection_weights = drift_projection_weights
         self._drift_embedder = None

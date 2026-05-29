@@ -64,18 +64,13 @@ All paths are **absolute** or relative to the project folder (where `config.json
 
 You can also use **Load Model** in the UI; paths are saved back to `config.json`.
 
-## Data drift (embeddings)
+## Data drift
 
-Uses team **YOLOX Standard** pipeline (same as `embeddings.npy`):
+Embedding-based drift scoring compares each frame to a local reference bank (`embeddings.npy`) using the **YOLOX Standard** pipeline and the same checkpoint as detection (`sakku-gate.pth`).
 
-**letterbox 640×640 → backbone → neck (PAFPN) → GAP each scale → concat → L2 normalize**
+**Full documentation:** [`README_DRIFT.md`](README_DRIFT.md) — reference bank, live embedding steps, drift formula, score interpretation, rebuild, troubleshooting.
 
-| Setting | Description |
-|--------|-------------|
-| `drift.reference_path` | `embeddings.npy` — shape `(N, 512)` |
-| `drift.encoder` | `yolox_standard` (default) |
-| `drift.input_size` | `[640, 640]` — must match bank build |
-| `model.path` | **`sakku-gate.pth`** required for drift (same checkpoint as bank) |
+Quick config:
 
 ```json
 "drift": {
@@ -86,15 +81,7 @@ Uses team **YOLOX Standard** pipeline (same as `embeddings.npy`):
 }
 ```
 
-Rebuild bank (optional):
-
-```bash
-python build_reference_embeddings.py \
-  --pth sakku-gate.pth \
-  --exp "yolox_voc_s 3.py" \
-  --images /path/to/images \
-  --output embeddings.npy
-```
+Place `embeddings.npy` and `sakku-gate.pth` locally (not tracked in Git).
 
 ## RTSP passwords
 
@@ -113,4 +100,5 @@ fpa_agent/
   detection_model.py # YOLOX .pth / .onnx inference
 ```
 
-See `README_CONFIG.md` for the full config reference.
+See `README_CONFIG.md` for the full config reference.  
+See `README_DRIFT.md` for the complete data drift module guide.

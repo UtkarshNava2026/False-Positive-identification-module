@@ -149,14 +149,17 @@ class EmbeddingDriftScorer:
             self._store = ReferenceEmbeddingStore.from_path(
                 self.reference_path, knn_sample_size=self._knn_sample_size
             )
-            self._last["reference_count"] = int(self._store.matrix.shape[0])
+            n_ref, dim = self._store.matrix.shape
+            self._last["reference_count"] = int(n_ref)
+            self._last["reference_dim"] = int(dim)
             if self.encoder in ("yolox", "yolox_standard", "standard", "neck_concat"):
                 self.ready = bool(self._encode_fn is not None)
                 self._last["ready"] = self.ready
                 self._last["encoder"] = self._encoder_label
+                k = self._store.sample.shape[0]
                 return True, (
-                    f"Reference: {self._store.matrix.shape[0]}×{self._store.dim} — "
-                    "load sakku-gate.pth for YOLOX standard drift (neck concat @ 640)"
+                    f"Reference: {n_ref:,}×{dim} (kNN sample {k:,}) — "
+                    "load sakku-gate.pth for live YOLOX drift @ 640"
                 )
             if self.encoder == "resnet":
                 self._encode_fn = ResNetFrameEmbedder(device=self._device).encode_bgr

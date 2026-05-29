@@ -1,5 +1,7 @@
 # Configuration reference (`config.json`)
 
+For the full data drift guide (embeddings, formula, interpretation), see **`README_DRIFT.md`**.
+
 ## Model (`model`)
 
 | Key | `.pth` | `.onnx` | Notes |
@@ -14,7 +16,9 @@
 
 ## Drift (`drift`) — YOLOX Standard
 
-Matches team reference script: **letterbox 640 → backbone → neck → GAP per scale → concat → L2**.
+See **`README_DRIFT.md`** for pipeline details, drift formula, score bands, and troubleshooting.
+
+Matches team reference script: **letterbox 640 → backbone → neck → GAP per scale → concat/last_scale → L2**.
 
 | Key | Default | Description |
 |-----|---------|-------------|
