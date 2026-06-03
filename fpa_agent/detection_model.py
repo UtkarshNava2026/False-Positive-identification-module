@@ -7,7 +7,35 @@ from .tracker import ByteTracker
 
 
 class DetectionModel:
-    """Loads YOLOX-based detection model and performs inference with object tracking."""
+    """Loads YOLOX-based detection model and performs inference with object tracking.
+
+    Supported backends:
+        - pytorch  : .pth checkpoint (requires exp file)
+        - onnxruntime : .onnx model (default for .onnx files)
+        - openvino : .xml/.bin OpenVINO IR model (INT8 quantized or FP32)
+
+    Set backend via config.json  ``model.backend``  ("onnxruntime" | "openvino" | "pytorch").
+    For OpenVINO, set ``model.openvino_device`` to "CPU", "GPU", or "AUTO".
+    """
+
+    @staticmethod
+    def _centered_letterbox_rgb(image_bgr, input_size=(640, 640)):
+        """Replicate the EXACT preprocessing used by the separate embedding
+        model (letterbox_preprocess_bgr in embedding_extractor.py):
+        BGR→RGB, centered letterbox with pad=114, CHW float32.
+        This is needed so multi-output embeddings match the reference bank."""
+        img = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        h, w = img.shape[:2]
+        th, tw = int(input_size[0]), int(input_size[1])
+        scale = min(th / h, tw / w)
+        nh, nw = int(h * scale), int(w * scale)
+        resized = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_LINEAR)
+        padded = np.full((th, tw, 3), 114, dtype=np.uint8)
+        pt = (th - nh) // 2
+        pl = (tw - nw) // 2
+        padded[pt:pt + nh, pl:pl + nw] = resized
+        blob = padded.astype(np.float32).transpose(2, 0, 1)
+        return blob[np.newaxis, :].astype(np.float32)
 
     def __init__(
         self,
@@ -23,8 +51,11 @@ class DetectionModel:
         drift_pool_mode="auto",
         drift_projection_type="linear_relu",
         drift_projection_weights=None,
+        backend=None,
+        openvino_device="CPU",
+        drift_openvino_embedding_path=None,
     ):
-        # NOTE: arg name kept as pth_path for backward compatibility; it may be a .pth or .onnx path.
+        # NOTE: arg name kept as pth_path for backward compatibility; it may be a .pth, .onnx, or .xml path.
         self.model_path = pth_path
         self.device_str = device or 'cpu'
         self.device = torch.device(self.device_str)
@@ -51,6 +82,14 @@ class DetectionModel:
         self._ort_embedding_output_index = None
         self._cached_frame_embedding = None
 
+        # OpenVINO state
+        self._ov_compiled = None
+        self._ov_infer_request = None
+        self._ov_output_key = None
+        self._ov_device = (openvino_device or "CPU").upper()
+        self._backend = (backend or "").lower()  # "openvino", "onnxruntime", "pytorch", or auto-detect
+        self._drift_openvino_embedding_path = drift_openvino_embedding_path
+
         # Tracking
         self.enable_tracking = enable_tracking
         self.tracker = ByteTracker(track_thresh=self.test_conf,
@@ -76,16 +115,42 @@ class DetectionModel:
                 raise RuntimeError("Experiment file does not define an Exp class.")
             self.exp = exp_class()
         else:
-            from yolox.exp import get_exp
-            self.exp = get_exp("yolox_s", None)
+            try:
+                from yolox.exp import get_exp
+                self.exp = get_exp("yolox_s", None)
+            except Exception as e:
+                print(f"Warning: could not load default YOLOX exp class: {e}")
+                class DummyExp:
+                    test_size = (640, 640)
+                self.exp = DummyExp()
 
         self.input_size = self.exp.test_size if hasattr(self.exp, "test_size") else (640, 640)
-        self.model = self.exp.get_model()
+
         model_path_lower = (model_path or "").lower()
-        if model_path_lower.endswith(".onnx"):
+
+        # Determine backend: explicit setting > auto-detect from file extension
+        use_openvino = (
+            self._backend == "openvino"
+            or model_path_lower.endswith(".xml")
+        )
+        use_onnx = (
+            not use_openvino
+            and (
+                self._backend == "onnxruntime"
+                or model_path_lower.endswith(".onnx")
+            )
+        )
+
+        if use_openvino:
+            self._load_openvino_model(model_path)
+        elif use_onnx:
+            self.model = self.exp.get_model()
             self._load_onnx_model(model_path)
         else:
+            self.model = self.exp.get_model()
             self._load_pytorch_model(model_path)
+
+        self._init_drift_embedder()
 
     def _load_pytorch_model(self, pth_path):
         ckpt = torch.load(pth_path, map_location=self.device, weights_only=False)
@@ -96,11 +161,41 @@ class DetectionModel:
 
         self.model.to(self.device)
         self.model.eval()
-        self._init_drift_embedder()
 
     def _init_drift_embedder(self):
         """YOLOX Standard: letterbox → backbone → neck → GAP concat → L2."""
         self._drift_embedder = None
+        
+        # OpenVINO multi-output takes priority
+        if getattr(self, "_ov_embedding_output_index", None) is not None:
+            print("[Drift] Using OpenVINO multi-output. Skipping separate embedding model load.")
+            return
+
+        # OpenVINO embedding model path takes priority and doesn't require a PyTorch self.model
+        ov_emb_path = getattr(self, "_drift_openvino_embedding_path", None)
+        isize = self._drift_input_size
+        if isize is None:
+            isize = (640, 640)
+        if isinstance(isize, (list, tuple)):
+            isize = (int(isize[0]), int(isize[1]))
+        else:
+            isize = (int(isize), int(isize))
+
+        if ov_emb_path and os.path.exists(ov_emb_path):
+            try:
+                from .embedding_extractor import create_drift_embedder
+                self._drift_embedder = create_drift_embedder(
+                    ov_emb_path,
+                    self._ov_device,
+                    encoder="openvino",
+                    input_size=isize,
+                )
+                print(f"[Drift] Loaded OpenVINO drift embedder: {self._drift_embedder.description()}")
+                return
+            except Exception as e:
+                print(f"OpenVINO drift embedder init failed: {e}")
+                self._drift_embedder = None
+
         if self.model is None:
             return
 
@@ -217,7 +312,7 @@ class DetectionModel:
         return in_dim, layer
 
     def can_encode_drift_embedding(self) -> bool:
-        """YOLOX standard embedder (.pth) and/or ONNX embedding session."""
+        """YOLOX standard embedder (.pth), ONNX embedding, or OpenVINO multi-output."""
         if self._drift_embedder is not None:
             return True
         if self.model is not None and hasattr(self.model, "backbone") and self.ort_session is None:
@@ -225,6 +320,8 @@ class DetectionModel:
         if self.ort_embed_session is not None:
             return True
         if self.ort_session is not None and self._ort_embedding_output_index is not None:
+            return True
+        if getattr(self, "_ov_compiled", None) is not None and getattr(self, "_ov_embedding_output_index", None) is not None:
             return True
         return False
 
@@ -237,6 +334,8 @@ class DetectionModel:
             return "YOLOX embedding ONNX"
         if self._ort_embedding_output_index is not None:
             return "YOLOX detection ONNX (embedding output)"
+        if getattr(self, "_ov_embedding_output_index", None) is not None:
+            return "YOLOX detection OpenVINO (embedding output)"
         return "not available"
 
     @staticmethod
@@ -259,7 +358,7 @@ class DetectionModel:
     def encode_frame_embedding(self, image_bgr) -> np.ndarray:
         """
         YOLOX CSPDarknet → GAP → Linear(→512), L2-normalized.
-        Works for .pth, dedicated embedding .onnx, or multi-output detection .onnx.
+        Works for .pth, dedicated embedding .onnx, multi-output detection .onnx, or OpenVINO.
         """
         if not self.can_encode_drift_embedding():
             raise RuntimeError(
@@ -277,6 +376,13 @@ class DetectionModel:
             emb = self._cached_frame_embedding.copy()
             self._cached_frame_embedding = None
             return emb
+
+        if getattr(self, "_ov_compiled", None) is not None and getattr(self, "_ov_embedding_output_index", None) is not None:
+            # Use centered letterbox + BGR→RGB to exactly match reference bank
+            rgb_blob = self._centered_letterbox_rgb(image_bgr, self.input_size)
+            results = self._ov_infer_request.infer({0: rgb_blob})
+            emb_tensor = results[self._ov_compiled.output(self._ov_embedding_output_index)]
+            return self._parse_embedding_array(emb_tensor)
 
         if self.ort_embed_session is not None:
             out = self.ort_embed_session.run(
@@ -447,6 +553,80 @@ class DetectionModel:
             )
         self._cached_frame_embedding = None
 
+    def _load_openvino_model(self, model_path: str):
+        """Load an OpenVINO IR (.xml/.bin) or ONNX model via the OpenVINO runtime.
+
+        This backend is ideal for INT8 quantized models produced by NNCF.
+        Set ``model.openvino_device`` in config.json to select the target device.
+        """
+        if not model_path:
+            print("[OpenVINO] No detection model path provided. Skipping detection model load.")
+            return
+        import time as _time
+        try:
+            import openvino as ov
+        except ImportError as e:
+            raise RuntimeError(
+                "openvino is required to run .xml models. "
+                "Install it via: pip install -r requirements-openvino.txt"
+            ) from e
+
+        print(f"[OpenVINO] Loading model: {model_path}")
+        t0 = _time.time()
+        core = ov.Core()
+
+        # Log available devices
+        available = core.available_devices
+        print(f"[OpenVINO] Available devices: {available}")
+        for dev in available:
+            try:
+                full_name = core.get_property(dev, "FULL_DEVICE_NAME")
+                print(f"  {dev}: {full_name}")
+            except Exception:
+                pass
+
+        ov_model = core.read_model(model_path)
+        target_device = self._ov_device
+        if target_device not in available and target_device != "AUTO":
+            print(f"[OpenVINO] WARNING: Device '{target_device}' not available. Falling back to CPU.")
+            target_device = "CPU"
+
+        print(f"[OpenVINO] Compiling model for device: {target_device}...")
+        self._ov_compiled = core.compile_model(ov_model, target_device)
+        self._ov_infer_request = self._ov_compiled.create_infer_request()
+        self._ov_output_key = self._ov_compiled.output(0)
+        
+        # Check for multi-output embedding
+        self._ov_embedding_output_index = None
+        outputs = self._ov_compiled.outputs
+        if len(outputs) >= 2:
+            for i, meta in enumerate(outputs):
+                if i == 0:
+                    continue
+                names = list(meta.get_names())
+                name_str = "".join(names).lower() if names else ""
+                if any(t in name_str for t in ("embed", "drift", "feature", "vector")):
+                    self._ov_embedding_output_index = i
+                    break
+                try:
+                    shape = list(meta.get_shape())
+                    if shape[-1] == 512:
+                        self._ov_embedding_output_index = i
+                        break
+                except Exception:
+                    pass
+        if self._ov_embedding_output_index is not None:
+            print(f"[OpenVINO] Multi-output detected. Embedding output index: {self._ov_embedding_output_index}")
+
+        t_load = _time.time() - t0
+        print(f"[OpenVINO] Model loaded and compiled in {t_load:.2f}s")
+
+        # Clear PyTorch / ONNX Runtime state
+        self.model = None
+        self.ort_session = None
+        self.ort_input_name = None
+        self._cached_frame_embedding = None
+
     @staticmethod
     def _safe_ratio(ratio: float) -> float:
         try:
@@ -510,21 +690,34 @@ class DetectionModel:
 
         # Decode in-place like your working script.
         preds = preds.astype(np.float32, copy=False)
-        preds_xy = (preds[:, :2] + grids[0]) * expanded_strides[0]            # [N, 2]
-        # Clip log-wh before exp — int8 ONNX can emit extreme logits on some frames.
-        wh_log = np.clip(preds[:, 2:4], -20.0, 20.0)
-        with np.errstate(over="ignore", invalid="ignore"):
-            preds_wh = np.exp(wh_log) * expanded_strides[0]
-        preds_wh = np.nan_to_num(preds_wh, nan=0.0, posinf=0.0, neginf=0.0)
         obj = preds[:, 4:5]                                                   # [N, 1]
         cls_scores = preds[:, 5:]                                             # [N, C]
-
-        # xyxy
-        boxes_xyxy = np.zeros((preds.shape[0], 4), dtype=np.float32)
-        boxes_xyxy[:, 0] = preds_xy[:, 0] - preds_wh[:, 0] / 2.0
-        boxes_xyxy[:, 1] = preds_xy[:, 1] - preds_wh[:, 1] / 2.0
-        boxes_xyxy[:, 2] = preds_xy[:, 0] + preds_wh[:, 0] / 2.0
-        boxes_xyxy[:, 3] = preds_xy[:, 1] + preds_wh[:, 1] / 2.0
+        
+        # Auto-detect if coordinates are already decoded (absolute pixel scale, e.g. up to 640)
+        # Raw logits/offsets are typically small (between -5 and 5)
+        is_decoded = float(np.max(preds[:, :4])) > 10.0
+        
+        if is_decoded:
+            # Bounding boxes are already decoded cx, cy, w, h
+            boxes_xyxy = np.zeros((preds.shape[0], 4), dtype=np.float32)
+            boxes_xyxy[:, 0] = preds[:, 0] - preds[:, 2] / 2.0
+            boxes_xyxy[:, 1] = preds[:, 1] - preds[:, 3] / 2.0
+            boxes_xyxy[:, 2] = preds[:, 0] + preds[:, 2] / 2.0
+            boxes_xyxy[:, 3] = preds[:, 1] + preds[:, 3] / 2.0
+        else:
+            # Raw coordinates need grid decoding
+            preds_xy = (preds[:, :2] + grids[0]) * expanded_strides[0]            # [N, 2]
+            # Clip log-wh before exp — int8 ONNX can emit extreme logits on some frames.
+            wh_log = np.clip(preds[:, 2:4], -20.0, 20.0)
+            with np.errstate(over="ignore", invalid="ignore"):
+                preds_wh = np.exp(wh_log) * expanded_strides[0]
+            preds_wh = np.nan_to_num(preds_wh, nan=0.0, posinf=0.0, neginf=0.0)
+            
+            boxes_xyxy = np.zeros((preds.shape[0], 4), dtype=np.float32)
+            boxes_xyxy[:, 0] = preds_xy[:, 0] - preds_wh[:, 0] / 2.0
+            boxes_xyxy[:, 1] = preds_xy[:, 1] - preds_wh[:, 1] / 2.0
+            boxes_xyxy[:, 2] = preds_xy[:, 0] + preds_wh[:, 0] / 2.0
+            boxes_xyxy[:, 3] = preds_xy[:, 1] + preds_wh[:, 1] / 2.0
 
         # Scale back to original image coords
         boxes_xyxy /= ratio
@@ -614,13 +807,33 @@ class DetectionModel:
 
     def predict(self, image_bgr):
         img_h, img_w = image_bgr.shape[:2]
-        if self.model is None and self.ort_session is None:
+        if self.model is None and self.ort_session is None and self._ov_compiled is None:
             detections = [{'bbox': [int(img_w * 0.2), int(img_h * 0.2), int(img_w * 0.8), int(img_h * 0.8)],
                      'label': 'dummy', 'conf': 0.5}]
         else:
             image_norm, ratio = self.preproc(image_bgr, self.input_size)
             image_norm = image_norm[np.newaxis, :].astype(np.float32)
-            if self.ort_session is not None:
+
+            if self._ov_compiled is not None:
+                # ── OpenVINO inference path ──
+                results = self._ov_infer_request.infer({0: image_norm})
+                raw0 = results[self._ov_output_key]
+                outputs = self._yolox_decode_and_nms(
+                    raw0, ratio, img_hw=(img_h, img_w)
+                )
+                self._cached_frame_embedding = None
+                if getattr(self, "_ov_embedding_output_index", None) is not None:
+                    try:
+                        # Use centered letterbox + BGR→RGB to exactly match
+                        # the reference bank built by letterbox_preprocess_bgr.
+                        rgb_blob = self._centered_letterbox_rgb(image_bgr, self.input_size)
+                        rgb_results = self._ov_infer_request.infer({0: rgb_blob})
+                        emb_tensor = rgb_results[self._ov_compiled.output(self._ov_embedding_output_index)]
+                        self._cached_frame_embedding = self._parse_embedding_array(emb_tensor)
+                    except Exception as e:
+                        print(f"Error extracting OpenVINO multi-output embedding: {e}")
+
+            elif self.ort_session is not None:
                 ort_outs = self.ort_session.run(None, {self.ort_input_name: image_norm})
                 self._cached_frame_embedding = None
                 if (
@@ -680,7 +893,7 @@ class DetectionModel:
                 for det in outputs:
                     # Two possible formats:
                     # - PyTorch postprocess: (x1,y1,x2,y2,obj_conf,class_conf,class_id)
-                    # - ONNX decoded:        (x1,y1,x2,y2,score,class_id)
+                    # - ONNX/OpenVINO decoded: (x1,y1,x2,y2,score,class_id)
                     if len(det) >= 7:
                         x1, y1, x2, y2 = det[0], det[1], det[2], det[3]
                         obj_conf = float(det[4])
@@ -712,5 +925,26 @@ class DetectionModel:
             self.frame_count += 1
             tracked_detections = self.tracker.update(detections, self.frame_count)
             return tracked_detections
-        
+
         return detections
+
+    @staticmethod
+    def list_openvino_devices():
+        """List all available OpenVINO devices and their names.
+
+        Returns a dict mapping device name to full device description.
+        Example: {'CPU': 'Intel(R) Core(TM) i7-...', 'GPU': 'Intel(R) UHD Graphics ...'}
+        """
+        try:
+            import openvino as ov
+        except ImportError:
+            return {"error": "openvino not installed. pip install -r requirements-openvino.txt"}
+
+        core = ov.Core()
+        devices = {}
+        for dev in core.available_devices:
+            try:
+                devices[dev] = core.get_property(dev, "FULL_DEVICE_NAME")
+            except Exception:
+                devices[dev] = "unknown"
+        return devices

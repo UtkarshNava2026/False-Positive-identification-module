@@ -1,13 +1,8 @@
 # --- Keep in repo: *.onnx only (do NOT ignore *.onnx) ---
-
 # ONNX external weight blobs (large; keep the .onnx graph in repo)
 *.onnx.data
 
-# Reference embedding banks (rebuild: build_reference_embeddings.py)
-embeddings.npy
-embeddings.pkl
-
-# PyTorch checkpoints (place sakku-gate.pth locally; not on GitHub)
+# PyTorch checkpoints / model weights (place local weights here; not on GitHub)
 *.pth
 *.pt
 *.ckpt
@@ -15,6 +10,11 @@ best_ckpt.pth
 mondelich.pth
 mondeleze-25may.pth
 sakku-gate.pth
+weights/
+
+# Reference embedding banks & backups
+*.npy
+*.pkl
 
 # Vendored YOLOX clone
 YOLOX/
@@ -52,3 +52,31 @@ output/
 # Optional local config overrides
 .env
 .env.*
+
+# Videos & archives (local test files)
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.zip
+*.tar.gz
+zip/
+
+# Runtime auto-saves & visual comparisons
+flagged_frames/
+
+# Datasets, Annotations, and Images
+# Ignore annotations and image formats globally
+*.xml
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.gif
+
+# Specific dataset, calibration, and output folders
+**/Training-Dataset/
+**/calib data/
+**/test_output/
+**/dataset_export/
+

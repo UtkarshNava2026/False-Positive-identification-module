@@ -208,14 +208,69 @@ class YOLOXLegacyDriftEmbedder:
             self._hook_handle.remove()
 
 
+class OpenVINODriftEmbedder:
+    """
+    Inference wrapper for OpenVINO-based drift embedding model.
+    """
+    def __init__(
+        self,
+        model_path: str,
+        device: str = "CPU",
+        input_size: Tuple[int, int] = (640, 640),
+    ):
+        import openvino as ov
+        
+        self.input_size = (int(input_size[0]), int(input_size[1]))
+        self.device = str(device or "CPU").upper()
+        self.core = ov.Core()
+        
+        print(f"[OpenVINO Drift] Loading embedding model: {model_path} on {self.device}")
+        self.ov_model = self.core.read_model(model_path)
+        self.compiled_model = self.core.compile_model(self.ov_model, self.device)
+        self.infer_request = self.compiled_model.create_infer_request()
+        
+        # Determine inputs/outputs
+        self.input_tensor_name = self.compiled_model.input(0).any_name
+        self.output_tensor_name = self.compiled_model.output(0).any_name
+
+    def extract_bgr(self, image_bgr: np.ndarray) -> np.ndarray:
+        # Preprocess
+        tensor = letterbox_preprocess_bgr(image_bgr, self.input_size)
+        blob = tensor.numpy() # OpenVINO accepts numpy arrays
+        
+        # Run inference
+        self.infer_request.infer({self.input_tensor_name: blob})
+        out = self.infer_request.get_output_tensor(0).data[0] # Shape [512]
+        
+        # Re-ensure L2 normalization
+        norm = float(np.linalg.norm(out))
+        if norm > 1e-8:
+            out = out / norm
+            
+        return out.astype(np.float32)
+
+    def description(self) -> str:
+        return f"OpenVINO Embedding Model @ {self.input_size[0]}x{self.input_size[1]} ({self.device})"
+
+    def close(self):
+        pass
+
+
 def create_drift_embedder(
-    yolox_model: nn.Module,
+    yolox_model: nn.Module | str,
     device: Union[str, torch.device],
     encoder: str = "yolox_standard",
     input_size: Tuple[int, int] = (640, 640),
     **legacy_kwargs,
 ):
-    """Factory: default is YOLOXStandardEmbedder."""
+    """Factory: returns standard, legacy, or OpenVINO drift embedder."""
+    if isinstance(yolox_model, str) and yolox_model.lower().endswith(".xml"):
+        return OpenVINODriftEmbedder(
+            model_path=yolox_model,
+            device=str(device),
+            input_size=input_size
+        )
+        
     enc = (encoder or "yolox_standard").lower()
     if enc in ("yolox", "yolox_standard", "standard", "neck_concat"):
         pool_mode = legacy_kwargs.get("pool_mode", "auto")

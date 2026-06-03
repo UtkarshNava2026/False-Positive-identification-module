@@ -24,7 +24,14 @@ def configure_qt_for_pyqt5():
         if os.path.isdir(qt_plugins):
             os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = qt_plugins
         # Prefer system/platform plugin from PyQt5, not OpenCV's copy.
-        os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
+        # Auto-detect appropriate platform: Windows → 'windows', Linux → 'xcb', macOS → 'cocoa'
+        if sys.platform == "win32":
+            default_platform = "windows"
+        elif sys.platform == "darwin":
+            default_platform = "cocoa"
+        else:
+            default_platform = "xcb"
+        os.environ.setdefault("QT_QPA_PLATFORM", default_platform)
     except ImportError:
         pass
 

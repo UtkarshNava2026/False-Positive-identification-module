@@ -31,7 +31,7 @@ class ConfigManager:
                 "input_size": [640, 640],
                 "knn_sample_size": 2048,
             },
-            "video": {"fps": 0, "frame_step": 1},
+            "video": {"fps": 0, "frame_step": 1, "offline_fps": 0.0},
             "ui": {"window_width": 1280, "window_height": 800},
             "export": {"default_format": "YOLO"},
         }

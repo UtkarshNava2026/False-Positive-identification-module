@@ -24,7 +24,7 @@ class TrackedObject:
     anomaly_score: float = 0.0
     velocity: np.ndarray = field(default_factory=lambda: np.zeros(2, dtype=np.float32))
     feature: np.ndarray = field(default_factory=lambda: np.zeros(128, dtype=np.float32))
-    ema_alpha: float = 0.9
+    ema_alpha: float = 0.15  # Fast smoothing factor (15% old + 85% new) to remove coordinate jitter without any latency/lag
 
     def add_detection(self, frame_idx, bbox, conf, centroid=None):
         """Add a detection to the track history and update motion state."""
@@ -36,7 +36,7 @@ class TrackedObject:
         self.score = conf
         self.detections.append({
             'frame': frame_idx,
-            'bbox': bbox,
+            'bbox': list(self.bbox),  # Use the smoothed bbox coordinates for UI display
             'conf': conf,
             'centroid': centroid
         })
@@ -137,22 +137,10 @@ class ByteTracker:
                  track_thresh=0.5,
                  match_thresh=0.45,
                  max_time_lost=30,
-                 max_distance=80,
+                 max_distance=80,  # Revert back to original 80 pixels
                  iou_weight=0.6,
                  dist_weight=0.4,
-                 ema_alpha=0.9):
-        """
-        Initialize the ByteTracker.
-
-        Args:
-            track_thresh: Confidence threshold to treat a detection as high-confidence.
-            match_thresh: Minimum combined similarity for a valid match.
-            max_time_lost: Frames to keep a LOST track before removal.
-            max_distance: Maximum centroid distance to allow matching.
-            iou_weight: Weight for IoU in combined similarity.
-            dist_weight: Weight for centroid distance in combined similarity.
-            ema_alpha: Exponential moving average factor for bbox smoothing.
-        """
+                 ema_alpha=0.15):
         self.next_object_id = 0
         self.active_tracks: Dict[int, TrackedObject] = {}
         self.lost_tracks: Dict[int, TrackedObject] = {}
@@ -170,14 +158,6 @@ class ByteTracker:
         self.frame_count = 0
 
     def update(self, detections: List[Dict], frame_idx: int) -> List[Dict]:
-        """
-        Update tracker with detections and return stable tracked results.
-
-        This implements ByteTrack-style two-stage association:
-        1. Match high-confidence detections to ACTIVE tracks.
-        2. Match remaining detections to LOST tracks.
-        3. Create new tracks only from unmatched high-confidence detections.
-        """
         self.frame_count = frame_idx
 
         detections = [dict(det) for det in detections]
@@ -228,13 +208,13 @@ class ByteTracker:
             det = second_stage_detections[idx]
             self._register_track(det, frame_idx)
 
-        # Build output for all ACTIVE tracks updated this frame.
+        # Build output for all ACTIVE tracks updated this frame (Reverted: no coasting, fast response)
         tracked_detections = []
         for track_id, track in self.active_tracks.items():
             if track.last_frame == frame_idx:
                 last_det = track.detections[-1]
                 tracked_detections.append({
-                    'bbox': last_det['bbox'],
+                    'bbox': last_det['bbox'],  # This is the smoothed bbox!
                     'label': track.class_label,
                     'conf': last_det['conf'],
                     'track_id': track_id,
@@ -244,7 +224,6 @@ class ByteTracker:
         return tracked_detections
 
     def _match_tracks(self, tracks: Dict[int, TrackedObject], detections: List[Dict]):
-        """Match a set of detections to existing tracks using combined similarity."""
         if len(tracks) == 0 or len(detections) == 0:
             return [], list(tracks.keys()), list(range(len(detections)))
 
@@ -262,11 +241,10 @@ class ByteTracker:
             track_centroids[:, None, :] - det_centroids[None, :, :], axis=2
         )
 
-        # Combined similarity: IoU + distance score.
         distance_score = np.clip(1.0 - dist_matrix / float(self.max_distance), 0.0, 1.0)
         similarity = self.iou_weight * iou_matrix + self.dist_weight * distance_score
 
-        # Reject matches beyond max distance or label mismatch.
+        # Reject matches beyond max distance or label mismatch (Reverted: strict label matching)
         invalid = dist_matrix > self.max_distance
         for track_idx, track_id in enumerate(track_ids):
             for det_idx, det in enumerate(detections):
@@ -277,7 +255,6 @@ class ByteTracker:
         used_tracks = set()
         used_dets = set()
 
-        # Greedy matching on combined similarity.
         while True:
             idx = np.argmax(similarity)
             max_score = similarity.flatten()[idx]
@@ -300,7 +277,6 @@ class ByteTracker:
         return matched, unmatched_tracks, unmatched_dets
 
     def _register_track(self, det: Dict, frame_idx: int):
-        """Create a new track from a detection."""
         track = TrackedObject(
             track_id=self.next_object_id,
             class_label=det['label'],
@@ -318,7 +294,6 @@ class ByteTracker:
         self.next_object_id += 1
 
     def _update_track(self, track: TrackedObject, det: Dict, frame_idx: int):
-        """Update an existing ACTIVE track with a matching detection."""
         track.add_detection(frame_idx, det['bbox'], det['conf'], self._centroid(det['bbox']))
         track.status = 'ACTIVE'
         track.time_since_update = 0
@@ -326,7 +301,6 @@ class ByteTracker:
         track.age += 1
 
     def _recover_track(self, track_id: int, det: Dict, frame_idx: int):
-        """Recover a LOST track if it matches a detection."""
         track = self.lost_tracks.pop(track_id)
         track.add_detection(frame_idx, det['bbox'], det['conf'], self._centroid(det['bbox']))
         track.status = 'ACTIVE'
@@ -335,7 +309,6 @@ class ByteTracker:
         self.active_tracks[track_id] = track
 
     def _mark_track_lost(self, track_id: int):
-        """Move an unmatched ACTIVE track to LOST state."""
         track = self.active_tracks.pop(track_id)
         track.status = 'LOST'
         track.time_since_update += 1
@@ -343,7 +316,6 @@ class ByteTracker:
         self.lost_tracks[track_id] = track
 
     def _remove_track(self, track_id: int):
-        """Remove a track that has exceeded max_time_lost."""
         track = self.lost_tracks.pop(track_id)
         track.status = 'REMOVED'
         track.analyze_anomaly()
@@ -351,7 +323,6 @@ class ByteTracker:
         self.track_history.append(track)
 
     def _predict_bbox(self, track: TrackedObject) -> np.ndarray:
-        """Predict the next bbox using motion consistency."""
         if track.age < 2 or np.linalg.norm(track.velocity) < 1e-3:
             return np.array(track.bbox, dtype=np.float32)
 
@@ -385,7 +356,6 @@ class ByteTracker:
         return inter / np.maximum(union, 1e-6)
 
     def get_anomalies(self) -> Dict[str, List]:
-        """Get detected anomalies from all tracks."""
         false_positives = []
         missed_detections = []
 
@@ -407,10 +377,7 @@ class ByteTracker:
             'lost_tracks': len(self.lost_tracks)
         }
 
-    # Motion-based drift removed; keep tracker focused on tracking/anomalies.
-
     def get_track_summary(self, track_id: int) -> Dict:
-        """Get detailed summary for a specific track."""
         if track_id in self.active_tracks:
             return self.active_tracks[track_id].get_summary()
         if track_id in self.lost_tracks:
@@ -423,7 +390,6 @@ class ByteTracker:
         return None
 
     def reset(self):
-        """Reset tracker state for a new video or stream."""
         self.next_object_id = 0
         self.active_tracks = {}
         self.lost_tracks = {}

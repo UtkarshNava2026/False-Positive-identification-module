@@ -1,23 +1,29 @@
 {
   "model": {
-    "path": "/home/navavision/Utkarsh_workspace/False-Positive-identification-module/sakku-gate.pth",
-    "pth_path": "/home/navavision/Utkarsh_workspace/False-Positive-identification-module/sakku-gate.pth",
-    "exp_path": "/home/navavision/Utkarsh_workspace/False-Positive-identification-module/yolox_voc_s 3.py",
-    "classes_path": "/home/navavision/Utkarsh_workspace/False-Positive-identification-module/class.txt",
-    "device": "cuda"
+    "path": "C:/NAVA/False-Positive-identification-module/weights/sakku_multi_output_int8.xml",
+    "exp_path": "C:/NAVA/False-Positive-identification-module/development_tools/yolox_voc_s 3.py",
+    "classes_path": "C:/NAVA/False-Positive-identification-module/class.txt",
+    "device": "cpu",
+    "backend": "openvino",
+    "openvino_device": "GPU",
+    "pth_path": "C:/NAVA/False-Positive-identification-module/weights/sakku_multi_output_int8.xml"
   },
   "drift": {
-    "reference_path": "embeddings.npy",
+    "reference_path": "C:/NAVA/False-Positive-identification-module/embeddings.npy",
     "encoder": "yolox_standard",
+    "openvino_embedding_path": "",
     "input_size": [
       640,
       640
     ],
-    "knn_sample_size": 2048
+    "knn_sample_size": 2048,
+    "auto_flag_threshold": 15.0,
+    "auto_save_dir": "C:/NAVA/False-Positive-identification-module/flagged_frames"
   },
   "video": {
-    "fps": 12,
-    "frame_step": 1
+    "fps": 20,
+    "frame_step": 0,
+    "offline_fps": 1
   },
   "ui": {
     "window_width": 1280,
@@ -25,5 +31,12 @@
   },
   "export": {
     "default_format": "YOLO"
+  },
+  "quantize": {
+    "input_model": "weights/backups/sakku_fp32.onnx",
+    "output_model": "weights/sakku_int8.xml",
+    "calibration_data": "calib data",
+    "num_samples": 200,
+    "input_shape": "640,640"
   }
 }

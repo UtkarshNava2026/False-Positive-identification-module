@@ -22,11 +22,14 @@ import numpy as np
 
 
 def iter_images(path: str):
-    exts = ("*.jpg", "*.jpeg", "*.png", "*.bmp", "*.webp")
+    valid_exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
     if os.path.isdir(path):
-        for ext in exts:
-            for p in sorted(glob.glob(os.path.join(path, "**", ext), recursive=True)):
-                yield p
+        for root, _, files in os.walk(path):
+            # Sort files in alphabetical order
+            for file in sorted(files):
+                ext = os.path.splitext(file)[1].lower()
+                if ext in valid_exts:
+                    yield os.path.join(root, file)
     elif os.path.isfile(path) and path.lower().endswith((".mp4", ".avi", ".mov", ".mkv")):
         cap = cv2.VideoCapture(path)
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
@@ -46,27 +49,55 @@ def iter_images(path: str):
 
 def main():
     ap = argparse.ArgumentParser(description="Build embeddings.npy (YOLOX Standard)")
-    ap.add_argument("--pth", required=True, help="YOLOX checkpoint e.g. sakku-gate.pth")
-    ap.add_argument("--exp", required=True, help="YOLOX exp .py")
+    ap.add_argument("--pth", help="YOLOX checkpoint e.g. sakku-gate.pth")
+    ap.add_argument("--exp", help="YOLOX exp .py")
     ap.add_argument("--images", required=True, help="Image folder, image path, or video")
     ap.add_argument("--output", default="embeddings.npy")
     ap.add_argument("--input-size", nargs=2, type=int, default=[640, 640])
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--max", type=int, default=0)
+    ap.add_argument("--openvino-embedding", help="Path to OpenVINO embedding model (.xml)")
+    ap.add_argument("--onnx-embedding", help="Path to ONNX embedding model (.onnx)")
     args = ap.parse_args()
+
+    if not args.openvino_embedding and not args.onnx_embedding and (not args.pth or not args.exp):
+        ap.error("Either --openvino-embedding, --onnx-embedding, or both --pth and --exp must be provided.")
 
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from fpa_agent.detection_model import DetectionModel
 
     isize = (args.input_size[0], args.input_size[1])
-    model = DetectionModel(
-        args.pth,
-        args.exp,
-        "",
-        device=args.device,
-        drift_input_size=isize,
-        drift_encoder="yolox_standard",
-    )
+    if args.openvino_embedding:
+        model = DetectionModel(
+            None,
+            None,
+            "",
+            device=args.device,
+            drift_input_size=isize,
+            drift_encoder="yolox_standard",
+            drift_openvino_embedding_path=args.openvino_embedding,
+            backend="openvino"
+        )
+    elif args.onnx_embedding:
+        model = DetectionModel(
+            None,
+            None,
+            "",
+            device=args.device,
+            drift_input_size=isize,
+            drift_encoder="yolox_standard",
+            drift_onnx_embedding_path=args.onnx_embedding,
+            backend="onnxruntime"
+        )
+    else:
+        model = DetectionModel(
+            args.pth,
+            args.exp,
+            "",
+            device=args.device,
+            drift_input_size=isize,
+            drift_encoder="yolox_standard",
+        )
     if not model.can_encode_drift_embedding():
         print("ERROR: YOLOX standard drift embedder not available (need .pth with backbone+neck).")
         sys.exit(1)

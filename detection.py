@@ -1,4 +1,5 @@
 """Entry point — configure Qt before OpenCV, then start the PyQt5 app."""
+import torch  # Import torch first to avoid WinError 1114 DLL loading conflicts with PyQt5/OpenCV
 import importlib.util
 import sys
 from pathlib import Path

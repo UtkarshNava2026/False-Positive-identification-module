@@ -1,0 +1,4 @@
+# OpenVINO quantization & inference dependencies
+# Install with: pip install -r requirements-openvino.txt
+openvino>=2024.0.0
+nncf>=2.9.0
