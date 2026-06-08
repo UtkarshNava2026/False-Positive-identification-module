@@ -101,6 +101,9 @@ class MainWindow(QMainWindow):
         self.current_frame_index = 0
         self.false_positive_frames = []
         self.fp_frame_data = {}
+        import tempfile
+        self._temp_dir_obj = tempfile.TemporaryDirectory(prefix="fpa_temp_")
+        self.temp_dir_path = self._temp_dir_obj.name
         self.current_video_path = None
         self.is_video = False
         self.video_thread = None
@@ -857,10 +860,12 @@ class MainWindow(QMainWindow):
         if self.current_frame_index not in self.false_positive_frames:
             self.false_positive_frames.append(self.current_frame_index)
             self.false_positive_frames.sort()
+            temp_path = os.path.join(self.temp_dir_path, f"frame_{self.current_frame_index:06d}.jpg")
+            cv2.imwrite(temp_path, self.current_raw_frame)
             self.fp_frame_data[self.current_frame_index] = {
                 "detections": [d.copy() for d in self.current_detections],
                 "timestamp": datetime.now().isoformat(),
-                "frame_image": self.current_raw_frame.copy(),
+                "frame_image_path": temp_path,
             }
             self.update_fp_list()
             self.status_bar.showMessage(f"Flagged frame {self.current_frame_index}")
@@ -879,7 +884,7 @@ class MainWindow(QMainWindow):
             self.fp_frame_data[n] = {
                 "detections": [],
                 "timestamp": datetime.now().isoformat(),
-                "frame_image": None,
+                "frame_image_path": None,
                 "manual_entry": True,
             }
             self.update_fp_list()
@@ -902,6 +907,13 @@ class MainWindow(QMainWindow):
             self, "Clear", f"Clear {len(self.false_positive_frames)} flagged frames?",
             QMessageBox.Yes | QMessageBox.No,
         ) == QMessageBox.Yes:
+            for frame_id, data in self.fp_frame_data.items():
+                path = data.get("frame_image_path")
+                if path and os.path.exists(path):
+                    try:
+                        os.remove(path)
+                    except Exception:
+                        pass
             self.false_positive_frames = []
             self.fp_frame_data = {}
             self.update_fp_list()
@@ -926,6 +938,11 @@ class MainWindow(QMainWindow):
         if self.drift_loader_thread and self.drift_loader_thread.isRunning():
             self.drift_loader_thread.quit()
             self.drift_loader_thread.wait(2000)
+        if hasattr(self, "_temp_dir_obj"):
+            try:
+                self._temp_dir_obj.cleanup()
+            except Exception:
+                pass
         event.accept()
 
     def toggle_play_pause(self):
@@ -1485,7 +1502,7 @@ class MainWindow(QMainWindow):
             return
         frames_with_data = sum(
             1 for f in self.false_positive_frames
-            if self.fp_frame_data.get(f, {}).get("frame_image") is not None
+            if self.fp_frame_data.get(f, {}).get("frame_image") is not None or self.fp_frame_data.get(f, {}).get("frame_image_path") is not None
         )
         if frames_with_data == 0:
             QMessageBox.warning(

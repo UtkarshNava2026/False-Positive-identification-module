@@ -1,12 +1,12 @@
 {
   "model": {
-    "path": "C:/NAVA/False-Positive-identification-module/weights/sakku_multi_output_int8.xml",
+    "path": "C:/NAVA/False-Positive-identification-module/weights/best_pruned_model_int8.xml",
     "exp_path": "C:/NAVA/False-Positive-identification-module/development_tools/yolox_voc_s 3.py",
     "classes_path": "C:/NAVA/False-Positive-identification-module/class.txt",
     "device": "cpu",
     "backend": "openvino",
     "openvino_device": "GPU",
-    "pth_path": "C:/NAVA/False-Positive-identification-module/weights/sakku_multi_output_int8.xml"
+    "pth_path": "C:/NAVA/False-Positive-identification-module/weights/best_pruned_model_int8.xml"
   },
   "drift": {
     "reference_path": "C:/NAVA/False-Positive-identification-module/embeddings.npy",

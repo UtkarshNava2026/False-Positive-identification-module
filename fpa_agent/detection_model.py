@@ -154,8 +154,13 @@ class DetectionModel:
 
     def _load_pytorch_model(self, pth_path):
         ckpt = torch.load(pth_path, map_location=self.device, weights_only=False)
-        if "model" in ckpt:
-            self.model.load_state_dict(ckpt["model"])
+        if isinstance(ckpt, torch.nn.Module):
+            self.model = ckpt
+        elif isinstance(ckpt, dict):
+            if "model" in ckpt:
+                self.model.load_state_dict(ckpt["model"])
+            else:
+                self.model.load_state_dict(ckpt)
         else:
             self.model.load_state_dict(ckpt)
 

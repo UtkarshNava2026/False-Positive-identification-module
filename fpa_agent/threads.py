@@ -134,9 +134,9 @@ class RtspProbeThread(QThread):
         self.url = normalize_rtsp_url(url.strip())
 
     def _open(self):
-        os.environ.setdefault(
-            "OPENCV_FFMPEG_CAPTURE_OPTIONS",
-            "rtsp_transport;tcp|stimeout;5000000|max_delay;500000",
+        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
+            "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay|"
+            "stimeout;5000000|max_delay;500000"
         )
         cap = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
         try:
@@ -160,9 +160,9 @@ def open_video_capture(source: str):
     src = source.strip()
     if src.lower().startswith("rtsp://"):
         src = normalize_rtsp_url(src)
-        os.environ.setdefault(
-            "OPENCV_FFMPEG_CAPTURE_OPTIONS",
-            "rtsp_transport;tcp|stimeout;5000000|max_delay;500000",
+        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
+            "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay|"
+            "stimeout;5000000|max_delay;500000"
         )
         cap = cv2.VideoCapture(src, cv2.CAP_FFMPEG)
         try:
@@ -317,6 +317,14 @@ class VideoThread(QThread):
             self.finished_signal.emit()
 
     def _reader_loop(self):
+        is_live = False
+        if isinstance(self.source, str):
+            src_str = self.source.strip().lower()
+            if src_str.startswith("rtsp://") or src_str.startswith("rtmp://") or src_str.isdigit():
+                is_live = True
+        elif isinstance(self.source, int):
+            is_live = True
+
         while not self.stop_flag and not self._reader_stop.is_set():
             # Handle a pending seek (must be executed on this thread, which owns cap)
             if self._seek_to is not None:
@@ -338,17 +346,31 @@ class VideoThread(QThread):
             if not ret:
                 self._enqueue_sentinel()
                 return
-            try:
-                self._frame_queue.put(frame, timeout=1.0)
-            except queue.Full:
+
+            if is_live:
                 try:
-                    self._frame_queue.get_nowait()
-                except queue.Empty:
-                    pass
-                try:
-                    self._frame_queue.put(frame, timeout=0.5)
+                    self._frame_queue.put_nowait(frame)
                 except queue.Full:
-                    pass
+                    try:
+                        self._frame_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+                    try:
+                        self._frame_queue.put_nowait(frame)
+                    except queue.Full:
+                        pass
+            else:
+                try:
+                    self._frame_queue.put(frame, timeout=1.0)
+                except queue.Full:
+                    try:
+                        self._frame_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+                    try:
+                        self._frame_queue.put(frame, timeout=0.5)
+                    except queue.Full:
+                        pass
 
     def _enqueue_sentinel(self):
         self._reader_stop.set()

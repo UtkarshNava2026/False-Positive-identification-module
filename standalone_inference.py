@@ -279,9 +279,14 @@ class StandaloneYOLOX:
         self.model = exp.get_model()
 
         device_obj = torch.device("cuda" if self.device == "gpu" else "cpu")
-        ckpt = torch.load(self.model_path, map_location=device_obj)
-        if isinstance(ckpt, dict) and "model" in ckpt:
-            self.model.load_state_dict(ckpt["model"])
+        ckpt = torch.load(self.model_path, map_location=device_obj, weights_only=False)
+        if isinstance(ckpt, torch.nn.Module):
+            self.model = ckpt
+        elif isinstance(ckpt, dict):
+            if "model" in ckpt:
+                self.model.load_state_dict(ckpt["model"])
+            else:
+                self.model.load_state_dict(ckpt)
         else:
             self.model.load_state_dict(ckpt)
         self.model.to(device_obj)

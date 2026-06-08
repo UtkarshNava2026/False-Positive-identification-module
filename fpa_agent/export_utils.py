@@ -138,11 +138,15 @@ def export_false_positive_frames(fp_frame_data, output_dir, class_names, format_
     
     # Process each marked frame
     for frame_id, frame_data in sorted(fp_frame_data.items()):
+        frame_image = frame_data.get('frame_image')
+        if frame_image is None:
+            image_path = frame_data.get('frame_image_path')
+            if image_path and os.path.exists(image_path):
+                frame_image = cv2.imread(image_path)
+                
         # Skip frames without actual image data (manually entered frame numbers)
-        if frame_data.get('frame_image') is None:
+        if frame_image is None:
             continue
-        
-        frame_image = frame_data['frame_image']
         detections = detections_as_person_labels(frame_data.get('detections', []))
         
         # Save frame image
